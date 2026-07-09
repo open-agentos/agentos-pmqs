@@ -61,6 +61,18 @@ class TelemetryValues:
 # ── Pure reducer ──────────────────────────────────────────────────────────────
 
 def reduce_runs(records: list[dict[str, Any]]) -> TelemetryValues:
+    """Reduce a list of RunRecord dicts for one issue into TelemetryValues.
+
+    Rules:
+    - cost_to_date = sum(cost.total_cost_usd); null/missing cost -> 0
+    - attempts     = max(identity.attempt)
+    - turns        = execution.turns  of the record with the latest lifecycle.ended_at
+    - clean_exit   = clean_exit.status of the same latest record
+    - outcome      = "Provisional" always (settlement writes the final value)
+
+    Empty list -> all defaults, no exception.
+    Out-of-order records are handled correctly (sort by ended_at).
+    """
     if not records:
         return TelemetryValues()
 
@@ -68,6 +80,7 @@ def reduce_runs(records: list[dict[str, Any]]) -> TelemetryValues:
     max_attempt = 0
 
     for rec in records:
+        # cost
         try:
             c = (rec.get("cost") or {}).get("total_cost_usd")
             if c is not None:
@@ -75,6 +88,7 @@ def reduce_runs(records: list[dict[str, Any]]) -> TelemetryValues:
         except (TypeError, ValueError):
             pass
 
+        # attempt
         try:
             a = (rec.get("identity") or {}).get("attempt")
             if a is not None:
@@ -82,6 +96,7 @@ def reduce_runs(records: list[dict[str, Any]]) -> TelemetryValues:
         except (TypeError, ValueError):
             pass
 
+    # latest by lifecycle.ended_at (ISO 8601 lexicographic sort is correct)
     def _ended_at(rec: dict) -> str:
         return (rec.get("lifecycle") or {}).get("ended_at") or ""
 
@@ -94,6 +109,12 @@ def reduce_runs(records: list[dict[str, Any]]) -> TelemetryValues:
         pass
 
     clean_exit_raw = (latest.get("clean_exit") or {}).get("status") or ""
+    # Map raw enum value to the board option name
+    _EXIT_MAP = {
+        "clean":        "Clean",
+        "crashed":      "Crashed",
+        "max_turns":    "Max turns",
+        "infra_failure":"Infra failure",
     _EXIT_MAP = {
         "clean":         "Clean",
         "crashed":       "Crashed",
@@ -114,6 +135,7 @@ def reduce_runs(records: list[dict[str, Any]]) -> TelemetryValues:
 # ── JSONL reader ──────────────────────────────────────────────────────────────
 
 def _load_records_for_issue(issue_number: int, target_repo: str) -> list[dict[str, Any]]:
+    """Read all ops-metrics JSONL lines for a given issue number + repo."""
     records: list[dict[str, Any]] = []
     if not METRICS_DIR.exists():
         return records
@@ -144,6 +166,21 @@ def _load_records_for_issue(issue_number: int, target_repo: str) -> list[dict[st
 
 # ── GraphQL helpers ───────────────────────────────────────────────────────────
 
+UPDATE_NUMBER_MUTATION = """
+mutation UpdateNumber(
+  $projectId: ID!,
+  $itemId: ID!,
+  $fieldId: ID!,
+  $value: Float!
+) {
+  updateProjectV2ItemFieldValue(input: {
+    projectId: $projectId,
+    itemId: $itemId,
+    fieldId: $fieldId,
+    value: { number: $value }
+  }) {
+    projectV2Item { id }
+  }
 ADD_ITEM_MUTATION = """
 mutation AddItem($projectId: ID!, $contentId: ID!) {
   addProjectV2ItemById(input: {
@@ -168,6 +205,19 @@ mutation UpdateNumber(
 
 UPDATE_SELECT_MUTATION = """
 mutation UpdateSelect(
+  $projectId: ID!,
+  $itemId: ID!,
+  $fieldId: ID!,
+  $optionId: String!
+) {
+  updateProjectV2ItemFieldValue(input: {
+    projectId: $projectId,
+    itemId: $itemId,
+    fieldId: $fieldId,
+    value: { singleSelectOptionId: $optionId }
+  }) {
+    projectV2Item { id }
+  }
   $projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!
 ) {
   updateProjectV2ItemFieldValue(input: {
@@ -206,12 +256,26 @@ def _graphql(token: str, query: str, variables: dict) -> dict:
 
 
 def _set_number(token: str, board_id: str, item_id: str, field_id: str, value: float) -> None:
+    """Write a number field value.  Best-effort."""
+    _graphql(token, UPDATE_NUMBER_MUTATION, {
+        "projectId": board_id,
+        "itemId": item_id,
+        "fieldId": field_id,
+        "value": value,
     _graphql(token, UPDATE_NUMBER_MUTATION, {
         "projectId": board_id, "itemId": item_id, "fieldId": field_id, "value": value,
     })
 
 
 def _set_single_select(token: str, board_id: str, item_id: str, field_id: str, option_id: str) -> None:
+    """Write a single-select field value.  Best-effort."""
+    if not option_id:
+        return
+    _graphql(token, UPDATE_SELECT_MUTATION, {
+        "projectId": board_id,
+        "itemId": item_id,
+        "fieldId": field_id,
+        "optionId": option_id,
     if not option_id:
         return
     _graphql(token, UPDATE_SELECT_MUTATION, {
@@ -222,6 +286,7 @@ def _set_single_select(token: str, board_id: str, item_id: str, field_id: str, o
 # ── Bindings loader ───────────────────────────────────────────────────────────
 
 def _load_bindings(bindings_path: Path | None = None) -> dict:
+    """Load field-bindings.json if it exists; return empty dict otherwise."""
     if bindings_path is None:
         bindings_path = OPS_ROOT / "field-bindings.json"
     if not bindings_path.exists():
@@ -235,6 +300,13 @@ def _load_bindings(bindings_path: Path | None = None) -> dict:
 
 
 def _resolve_board_id(bindings: dict) -> str:
+    """Resolve the Projects v2 board node ID.
+
+    Precedence:
+      1. ``board_id`` key in field-bindings.json
+      2. BOARD_ID environment variable
+    Returns empty string if neither is set.
+    """
     from_bindings = (bindings.get("board_id") or "").strip()
     if from_bindings:
         return from_bindings
@@ -353,6 +425,11 @@ def write_telemetry(
     values: TelemetryValues,
     bindings: dict,
 ) -> None:
+    """Write TelemetryValues to the board item using field-bindings.json IDs.
+
+    Best-effort: any individual field write failure is logged and skipped;
+    remaining fields continue.  Never raises.
+    """
     fields = bindings.get("fields", {})
 
     def _field_id(name: str) -> str:
@@ -360,6 +437,7 @@ def write_telemetry(
 
     def _option_id(field_name: str, option_name: str) -> str:
         opts = (fields.get(field_name) or {}).get("options") or {}
+        # Try exact match first, then case-insensitive
         if option_name in opts:
             return opts[option_name]
         for k, v in opts.items():
@@ -367,6 +445,7 @@ def write_telemetry(
                 return v
         return ""
 
+    # Number fields
     for field_name, value in [
         ("Cost to date", values.cost_to_date),
         ("Turns", float(values.turns)),
@@ -382,6 +461,7 @@ def write_telemetry(
         except Exception as exc:
             LOGGER.warning("Failed to write %s: %s", field_name, exc)
 
+    # Single-select fields
     for field_name, option_name in [
         ("Outcome", values.outcome),
         ("Clean exit", values.clean_exit),
@@ -403,6 +483,7 @@ def write_telemetry(
             LOGGER.warning("Failed to write %s: %s", field_name, exc)
 
 
+# ── Public entry points ───────────────────────────────────────────────────────
 # ── project_provisional ───────────────────────────────────────────────────────
 
 def project_provisional(
@@ -412,6 +493,32 @@ def project_provisional(
     bindings_path: Path | None = None,
     target_repo: str | None = None,
 ) -> None:
+    """Reduce JSONL records for issue_number and write provisional telemetry.
+
+    Called from the runner main() after persist_record().  Best-effort:
+    any exception is caught, logged, and swallowed so the run's exit code
+    is never affected.
+
+    Args:
+        board_token:  Board App installation token.
+        issue_number: The issue this run was triggered by.
+        item_id:      The Projects v2 item node ID.
+        bindings_path: Override path to field-bindings.json (for testing).
+        target_repo:  owner/repo of the target repo (overrides TARGET_REPO env).
+    """
+    try:
+        bindings = _load_bindings(bindings_path)
+        board_id = _resolve_board_id(bindings)
+        if not board_id:
+            LOGGER.debug("board_id not set (BOARD_ID env / field-bindings.json); skipping projection")
+            return
+        if not item_id:
+            LOGGER.debug("item_id empty; issue not on board, skipping projection")
+            return
+        if not bindings:
+            LOGGER.debug("No bindings available; skipping projection")
+            return
+
     try:
         bindings = _load_bindings(bindings_path)
         board_id = _resolve_board_id(bindings)
@@ -429,6 +536,19 @@ def project_provisional(
         LOGGER.warning("project_provisional failed for issue #%s: %s", issue_number, exc)
 
 
+def _parse_linked_issue(pr_body: str) -> int | None:
+    """Extract the first linked issue number from a PR body.
+
+    Matches: 'Closes #N', 'Fixes #N', 'Resolves #N' (case-insensitive).
+    Returns the issue number as int, or None if not found.
+    """
+    if not pr_body:
+        return None
+    m = re.search(
+        r"(?:closes|fixes|resolves)\s+#(\d+)",
+        pr_body,
+        re.IGNORECASE,
+    )
 # ── settle ────────────────────────────────────────────────────────────────────
 
 def _parse_linked_issue(pr_body: str) -> int | None:
@@ -445,6 +565,27 @@ def settle(
     bindings_path: Path | None = None,
     target_repo: str | None = None,
 ) -> None:
+    """Write the final Outcome field when a PR is closed.
+
+    Resolves the linked issue from the PR body, finds its board item, and
+    sets Outcome to 'Merged' or 'Closed unmerged'.  Best-effort throughout.
+
+    Args:
+        board_token:  Board App installation token.
+        pr_number:    The closed PR number.
+        merged:       True if the PR was merged, False if simply closed.
+        bindings_path: Override path to field-bindings.json (for testing).
+        target_repo:  owner/repo of the target repo (overrides TARGET_REPO env).
+    """
+    try:
+        bindings = _load_bindings(bindings_path)
+        board_id = _resolve_board_id(bindings)
+        if not board_id:
+            LOGGER.debug("board_id not set; skipping settlement")
+            return
+
+        if not bindings:
+            LOGGER.debug("No bindings available; skipping settlement")
     try:
         bindings = _load_bindings(bindings_path)
         board_id = _resolve_board_id(bindings)
@@ -453,6 +594,16 @@ def settle(
 
         repo = target_repo or os.environ.get("TARGET_REPO", "")
         if not repo:
+            LOGGER.warning("settle: TARGET_REPO not set; cannot fetch PR body")
+            return
+
+        # Fetch the PR body to resolve the linked issue number
+        code_url = f"{API}/repos/{repo}/pulls/{pr_number}"
+        req = urllib.request.Request(code_url)
+        req.add_header("Authorization", f"Bearer {board_token}")
+        req.add_header("Accept", "application/vnd.github+json")
+        req.add_header("X-GitHub-Api-Version", "2022-11-28")
+        req.add_header("User-Agent", "ops-projector")
             LOGGER.warning("settle: TARGET_REPO not set")
             return
 
@@ -472,6 +623,18 @@ def settle(
             LOGGER.warning("settle: could not fetch PR #%s: %s", pr_number, exc)
             return
 
+        pr_body = pr_data.get("body") or ""
+        issue_number = _parse_linked_issue(pr_body)
+        if not issue_number:
+            LOGGER.debug("settle: no linked issue found in PR #%s body; no-op", pr_number)
+            return
+
+        # Find the board item for that issue using the Projects v2 GraphQL API.
+        # Callers that have a `read_item_fields` helper can pass item_id directly
+        # to write_telemetry; this path re-queries to stay self-contained.
+        item_id = _find_item_id_for_issue(board_token, board_id, issue_number)
+        if not item_id:
+            LOGGER.debug("settle: issue #%s not on board; no-op", issue_number)
         issue_number = _parse_linked_issue(pr_data.get("body") or "")
         if not issue_number:
             LOGGER.debug("settle: no linked issue in PR #%s body", pr_number)
@@ -486,6 +649,20 @@ def settle(
         fields = bindings.get("fields", {})
         outcome_field = fields.get("Outcome") or {}
         field_id = outcome_field.get("id") or ""
+        options = outcome_field.get("options") or {}
+        option_id = options.get(outcome_name) or ""
+        if not field_id or not option_id:
+            LOGGER.warning(
+                "settle: missing binding for Outcome/%r; field_id=%r option_id=%r",
+                outcome_name, field_id, option_id,
+            )
+            return
+
+        _set_single_select(board_token, board_id, item_id, field_id, option_id)
+        LOGGER.info(
+            "settle: set Outcome=%r on item %s (issue #%s, PR #%s merged=%s)",
+            outcome_name, item_id, issue_number, pr_number, merged,
+        )
         option_id = (outcome_field.get("options") or {}).get(outcome_name) or ""
         if not field_id or not option_id:
             LOGGER.warning("settle: missing binding for Outcome/%r", outcome_name)
@@ -497,6 +674,128 @@ def settle(
         LOGGER.warning("settle failed for PR #%s: %s", pr_number, exc)
 
 
+def _find_item_id_for_issue(token: str, board_id: str, issue_number: int) -> str:
+    """Query the Projects v2 board for the item node ID linked to an issue.
+
+    Returns the item node ID string, or empty string if not found.
+    This is a lightweight GraphQL search; callers with a cached item_id
+    should pass it directly to write_telemetry instead.
+    """
+    query = """
+    query FindItem($boardId: ID!, $cursor: String) {
+      node(id: $boardId) {
+        ... on ProjectV2 {
+          items(first: 100, after: $cursor) {
+            pageInfo { hasNextPage endCursor }
+            nodes {
+              id
+              content {
+                ... on Issue { number }
+              }
+            }
+          }
+        }
+      }
+    }
+    """
+    cursor = None
+    while True:
+        variables: dict[str, Any] = {"boardId": board_id}
+        if cursor:
+            variables["cursor"] = cursor
+        resp = _graphql(token, query, variables)
+        nodes = (
+            (resp.get("data") or {})
+            .get("node", {})
+            .get("items", {})
+            .get("nodes", [])
+        ) or []
+        for node in nodes:
+            content = node.get("content") or {}
+            if content.get("number") == issue_number:
+                return node.get("id") or ""
+        page_info = (
+            (resp.get("data") or {})
+            .get("node", {})
+            .get("items", {})
+            .get("pageInfo", {})
+        ) or {}
+        if not page_info.get("hasNextPage"):
+            break
+        cursor = page_info.get("endCursor")
+    return ""
+
+
+
+# -- Board: add issue to project -----------------------------------------------
+
+ADD_ITEM_MUTATION = """
+mutation AddItem($projectId: ID!, $contentId: ID!) {
+  addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+    item { id }
+  }
+}
+"""
+
+
+def add_issue_to_board(github_token: str, board_id: str, target_repo: str, issue_number: int) -> None:
+    """Add an issue to a Projects v2 board by issue number.
+
+    Best-effort: logs warnings on failure, never raises into the caller.
+    """
+    try:
+        if not board_id:
+            LOGGER.warning("add_issue_to_board: BOARD_ID not set; skipping")
+            return
+        if not target_repo or "/" not in target_repo:
+            LOGGER.warning("add_issue_to_board: TARGET_REPO not set or invalid; skipping")
+            return
+
+        owner, repo_name = target_repo.split("/", 1)
+
+        req = urllib.request.Request(
+            f"{API}/repos/{owner}/{repo_name}/issues/{issue_number}",
+        )
+        req.add_header("Authorization", f"Bearer {github_token}")
+        req.add_header("Accept", "application/vnd.github+json")
+        req.add_header("X-GitHub-Api-Version", "2022-11-28")
+        req.add_header("User-Agent", "ops-projector")
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                issue_data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        except urllib.error.HTTPError as exc:
+            LOGGER.warning("add_issue_to_board: could not fetch issue #%s: HTTP %s", issue_number, exc.code)
+            return
+        except Exception as exc:
+            LOGGER.warning("add_issue_to_board: could not fetch issue #%s: %s", issue_number, exc)
+            return
+
+        node_id = issue_data.get("node_id")
+        if not node_id:
+            LOGGER.warning("add_issue_to_board: no node_id on issue #%s response", issue_number)
+            return
+
+        result = _graphql(github_token, ADD_ITEM_MUTATION, {
+            "projectId": board_id,
+            "contentId": node_id,
+        })
+        item_id = (
+            (result.get("data") or {})
+            .get("addProjectV2ItemById", {})
+            .get("item", {})
+            .get("id")
+        )
+        if item_id:
+            LOGGER.info("add_issue_to_board: added issue #%s to board %s as item %s", issue_number, board_id, item_id)
+        else:
+            LOGGER.warning("add_issue_to_board: mutation returned no item id for issue #%s", issue_number)
+    except Exception as exc:
+        LOGGER.warning("add_issue_to_board: unexpected error for issue #%s: %s", issue_number, exc)
+
+# ── CLI entry point for workflow automation ───────────────────────────────────
+
+def _str_to_bool(value: str) -> bool:
+    """Parse a command-line boolean flag."""
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def _str_to_bool(value: str) -> bool:
@@ -509,12 +808,14 @@ def _str_to_bool(value: str) -> bool:
 
 
 def _pr_payload(event_path: str | None) -> tuple[int | None, bool]:
+    """Extract pull_request number and merged flag from a GitHub event payload."""
     path = event_path or os.environ.get("GITHUB_EVENT_PATH")
     if not path or not Path(path).exists():
         return None, False
     try:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
     except Exception:
+        LOGGER.warning("Could not read PR event payload from %s", path)
         return None, False
     pr = payload.get("pull_request") or {}
     number = pr.get("number")
@@ -523,6 +824,55 @@ def _pr_payload(event_path: str | None) -> tuple[int | None, bool]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point used by the settlement workflow.
+
+    Reads the closed pull request from ``GITHUB_EVENT_PATH`` by default, or
+    accepts ``--pr`` and ``--merged`` overrides for ad-hoc / testing use.
+    """
+    parser = argparse.ArgumentParser(
+        description="GitHub Projects v2 settlement runner."
+    )
+    parser.add_argument(
+        "--pr",
+        dest="pr_number",
+        type=int,
+        default=None,
+        help="Closed PR number. Defaults to number from GITHUB_EVENT_PATH.",
+    )
+    parser.add_argument(
+        "--merged",
+        type=_str_to_bool,
+        default=None,
+        help="Whether the PR was merged (true/false). Defaults to event payload.",
+    )
+    parser.add_argument(
+        "--token",
+        default=None,
+        help="GitHub token. Defaults to the GITHUB_TOKEN environment variable.",
+    )
+    parser.add_argument(
+        "--event-path",
+        default=None,
+        help="Path to a GitHub pull_request event payload JSON.",
+    )
+    parser.add_argument(
+        "--repo",
+        default=None,
+        help="owner/repo of the target repository. Defaults to TARGET_REPO env.",
+    )
+    parser.add_argument(
+        "--add-to-board",
+        action="store_true",
+        default=False,
+        help="Add an issue to the Projects v2 board (requires --issue).",
+    )
+    parser.add_argument(
+        "--issue",
+        dest="issue_number",
+        type=int,
+        default=None,
+        help="Issue number to add to the board (used with --add-to-board).",
+    )
     """CLI entry point.
 
     Subcommands (via flags):
@@ -545,6 +895,49 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(message)s",
     )
 
+    # Handle --add-to-board subcommand and exit early.
+    if args.add_to_board:
+        logging.basicConfig(
+            level=os.environ.get("LOG_LEVEL", "INFO"),
+            format="%(asctime)s %(levelname)s %(message)s",
+        )
+        if args.issue_number is None:
+            LOGGER.warning("--add-to-board requires --issue N")
+            return 1
+        _token = args.token or os.environ.get("GITHUB_TOKEN", "")
+        if not _token:
+            LOGGER.warning("--add-to-board: no GITHUB_TOKEN available; skipping")
+            return 0
+        _board_id = os.environ.get("BOARD_ID", "").strip()
+        _repo = args.repo or os.environ.get("TARGET_REPO", "")
+        add_issue_to_board(_token, _board_id, _repo, args.issue_number)
+        return 0
+
+    # Resolve board_id from env or field-bindings.json
+    bindings = _load_bindings()
+    board_id = _resolve_board_id(bindings)
+    if not board_id:
+        LOGGER.info("board_id is not configured (BOARD_ID env / field-bindings.json); skipping settlement.")
+        return 0
+
+    pr_number, merged = _pr_payload(args.event_path)
+    if args.pr_number is not None:
+        pr_number = args.pr_number
+    if args.merged is not None:
+        merged = args.merged
+
+    if not pr_number:
+        LOGGER.warning("No PR number available; skipping settlement.")
+        return 0
+
+    token = args.token or os.environ.get("GITHUB_TOKEN") or os.environ.get("BOARD_TOKEN")
+    if not token:
+        LOGGER.warning("No GitHub token available; skipping settlement.")
+        return 0
+
+    target_repo = args.repo or os.environ.get("TARGET_REPO", "")
+    settle(token, pr_number, merged, target_repo=target_repo)
+    return 0
     token = args.token or os.environ.get("GITHUB_TOKEN", "")
     target_repo = args.repo or os.environ.get("TARGET_REPO", "")
 
@@ -590,4 +983,5 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     import sys
+
     raise SystemExit(main(sys.argv[1:]))
