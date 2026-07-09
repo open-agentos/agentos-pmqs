@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Projector: reduce RunRecord JSONL -> board telemetry fields.
 
-Two entry points:
+Three entry points:
+
+  add_to_board(board_token, board_id, target_repo, issue_number)
+      Called by agent-orchestrator.yml when a type:feature issue is opened.
+      Adds the issue to the Projects v2 board.  Best-effort; never raises.
 
   project_provisional(board_token, board_id, issue_number, item_id, bindings_path)
       Called at run-end.  Reads all ops-metrics JSONL lines for the issue,
@@ -47,11 +51,11 @@ API = "https://api.github.com"
 @dataclass
 class TelemetryValues:
     """Reduced telemetry for one issue, ready to write to the board."""
-    cost_to_date: float = 0.0   # sum of total_cost_usd across all attempts
-    attempts: int = 0           # max(identity.attempt)
-    turns: int = 0              # execution.turns of the latest run
-    clean_exit: str = ""        # clean_exit.status of the latest run
-    outcome: str = "Provisional"  # always Provisional from the reducer
+    cost_to_date: float = 0.0
+    attempts: int = 0
+    turns: int = 0
+    clean_exit: str = ""
+    outcome: str = "Provisional"
 
 
 # ── Pure reducer ──────────────────────────────────────────────────────────────
@@ -111,6 +115,11 @@ def reduce_runs(records: list[dict[str, Any]]) -> TelemetryValues:
         "crashed":      "Crashed",
         "max_turns":    "Max turns",
         "infra_failure":"Infra failure",
+    _EXIT_MAP = {
+        "clean":         "Clean",
+        "crashed":       "Crashed",
+        "max_turns":     "Max turns",
+        "infra_failure": "Infra failure",
     }
     clean_exit = _EXIT_MAP.get(clean_exit_raw.lower(), clean_exit_raw.title() if clean_exit_raw else "")
 
@@ -172,6 +181,25 @@ mutation UpdateNumber(
   }) {
     projectV2Item { id }
   }
+ADD_ITEM_MUTATION = """
+mutation AddItem($projectId: ID!, $contentId: ID!) {
+  addProjectV2ItemById(input: {
+    projectId: $projectId
+    contentId: $contentId
+  }) {
+    item { id }
+  }
+}
+"""
+
+UPDATE_NUMBER_MUTATION = """
+mutation UpdateNumber(
+  $projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: Float!
+) {
+  updateProjectV2ItemFieldValue(input: {
+    projectId: $projectId, itemId: $itemId, fieldId: $fieldId,
+    value: { number: $value }
+  }) { projectV2Item { id } }
 }
 """
 
@@ -190,6 +218,12 @@ mutation UpdateSelect(
   }) {
     projectV2Item { id }
   }
+  $projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!
+) {
+  updateProjectV2ItemFieldValue(input: {
+    projectId: $projectId, itemId: $itemId, fieldId: $fieldId,
+    value: { singleSelectOptionId: $optionId }
+  }) { projectV2Item { id } }
 }
 """
 
@@ -228,6 +262,8 @@ def _set_number(token: str, board_id: str, item_id: str, field_id: str, value: f
         "itemId": item_id,
         "fieldId": field_id,
         "value": value,
+    _graphql(token, UPDATE_NUMBER_MUTATION, {
+        "projectId": board_id, "itemId": item_id, "fieldId": field_id, "value": value,
     })
 
 
@@ -240,6 +276,10 @@ def _set_single_select(token: str, board_id: str, item_id: str, field_id: str, o
         "itemId": item_id,
         "fieldId": field_id,
         "optionId": option_id,
+    if not option_id:
+        return
+    _graphql(token, UPDATE_SELECT_MUTATION, {
+        "projectId": board_id, "itemId": item_id, "fieldId": field_id, "optionId": option_id,
     })
 
 
@@ -271,6 +311,109 @@ def _resolve_board_id(bindings: dict) -> str:
     if from_bindings:
         return from_bindings
     return os.environ.get("BOARD_ID", "").strip()
+
+
+# ── Board item lookup ─────────────────────────────────────────────────────────
+
+def _find_item_id_for_issue(token: str, board_id: str, issue_number: int) -> str:
+    query = """
+    query FindItem($boardId: ID!, $cursor: String) {
+      node(id: $boardId) {
+        ... on ProjectV2 {
+          items(first: 100, after: $cursor) {
+            pageInfo { hasNextPage endCursor }
+            nodes {
+              id
+              content { ... on Issue { number } }
+            }
+          }
+        }
+      }
+    }
+    """
+    cursor = None
+    while True:
+        variables: dict[str, Any] = {"boardId": board_id}
+        if cursor:
+            variables["cursor"] = cursor
+        resp = _graphql(token, query, variables)
+        nodes = (
+            (resp.get("data") or {}).get("node", {}).get("items", {}).get("nodes", [])
+        ) or []
+        for node in nodes:
+            content = node.get("content") or {}
+            if content.get("number") == issue_number:
+                return node.get("id") or ""
+        page_info = (
+            (resp.get("data") or {}).get("node", {}).get("items", {}).get("pageInfo", {})
+        ) or {}
+        if not page_info.get("hasNextPage"):
+            break
+        cursor = page_info.get("endCursor")
+    return ""
+
+
+# ── add_to_board ──────────────────────────────────────────────────────────────
+
+def add_to_board(
+    board_token: str,
+    target_repo: str,
+    issue_number: int,
+    board_id: str | None = None,
+    bindings_path: Path | None = None,
+) -> str:
+    """Add an issue to the Projects v2 board.
+
+    Returns the new board item node ID, or empty string on failure.
+    Best-effort: never raises into the caller.
+    """
+    try:
+        if not board_id:
+            bindings = _load_bindings(bindings_path)
+            board_id = _resolve_board_id(bindings)
+        if not board_id:
+            LOGGER.warning("add_to_board: board_id not configured; skipping")
+            return ""
+
+        # Resolve issue node ID
+        owner, repo_name = target_repo.split("/", 1)
+        url = f"{API}/repos/{owner}/{repo_name}/issues/{issue_number}"
+        req = urllib.request.Request(
+            url,
+            headers={
+                "Authorization": f"Bearer {board_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "ops-projector",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            issue_data = json.loads(resp.read().decode("utf-8", errors="replace"))
+        issue_node_id = issue_data.get("node_id") or ""
+        if not issue_node_id:
+            LOGGER.warning("add_to_board: could not resolve node_id for issue #%s", issue_number)
+            return ""
+
+        # Add to board
+        result = _graphql(board_token, ADD_ITEM_MUTATION, {
+            "projectId": board_id,
+            "contentId": issue_node_id,
+        })
+        item_id = (
+            (result.get("data") or {})
+            .get("addProjectV2ItemById", {})
+            .get("item", {})
+            .get("id") or ""
+        )
+        if item_id:
+            LOGGER.info("add_to_board: issue #%s added to board as item %s", issue_number, item_id)
+        else:
+            LOGGER.warning("add_to_board: addProjectV2ItemById returned no item ID")
+        return item_id
+
+    except Exception as exc:
+        LOGGER.warning("add_to_board failed for issue #%s: %s", issue_number, exc)
+        return ""
 
 
 # ── Telemetry writer ──────────────────────────────────────────────────────────
@@ -341,6 +484,7 @@ def write_telemetry(
 
 
 # ── Public entry points ───────────────────────────────────────────────────────
+# ── project_provisional ───────────────────────────────────────────────────────
 
 def project_provisional(
     board_token: str,
@@ -375,6 +519,11 @@ def project_provisional(
             LOGGER.debug("No bindings available; skipping projection")
             return
 
+    try:
+        bindings = _load_bindings(bindings_path)
+        board_id = _resolve_board_id(bindings)
+        if not board_id or not item_id or not bindings:
+            return
         repo = target_repo or os.environ.get("TARGET_REPO", "")
         records = _load_records_for_issue(issue_number, repo)
         values = reduce_runs(records)
@@ -400,6 +549,12 @@ def _parse_linked_issue(pr_body: str) -> int | None:
         pr_body,
         re.IGNORECASE,
     )
+# ── settle ────────────────────────────────────────────────────────────────────
+
+def _parse_linked_issue(pr_body: str) -> int | None:
+    if not pr_body:
+        return None
+    m = re.search(r"(?:closes|fixes|resolves)\s+#(\d+)", pr_body, re.IGNORECASE)
     return int(m.group(1)) if m else None
 
 
@@ -431,6 +586,10 @@ def settle(
 
         if not bindings:
             LOGGER.debug("No bindings available; skipping settlement")
+    try:
+        bindings = _load_bindings(bindings_path)
+        board_id = _resolve_board_id(bindings)
+        if not board_id or not bindings:
             return
 
         repo = target_repo or os.environ.get("TARGET_REPO", "")
@@ -445,6 +604,18 @@ def settle(
         req.add_header("Accept", "application/vnd.github+json")
         req.add_header("X-GitHub-Api-Version", "2022-11-28")
         req.add_header("User-Agent", "ops-projector")
+            LOGGER.warning("settle: TARGET_REPO not set")
+            return
+
+        req = urllib.request.Request(
+            f"{API}/repos/{repo}/pulls/{pr_number}",
+            headers={
+                "Authorization": f"Bearer {board_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "ops-projector",
+            },
+        )
         try:
             with urllib.request.urlopen(req, timeout=20) as resp:
                 pr_data = json.loads(resp.read().decode("utf-8", errors="replace"))
@@ -464,6 +635,14 @@ def settle(
         item_id = _find_item_id_for_issue(board_token, board_id, issue_number)
         if not item_id:
             LOGGER.debug("settle: issue #%s not on board; no-op", issue_number)
+        issue_number = _parse_linked_issue(pr_data.get("body") or "")
+        if not issue_number:
+            LOGGER.debug("settle: no linked issue in PR #%s body", pr_number)
+            return
+
+        item_id = _find_item_id_for_issue(board_token, board_id, issue_number)
+        if not item_id:
+            LOGGER.debug("settle: issue #%s not on board", issue_number)
             return
 
         outcome_name = "Merged" if merged else "Closed unmerged"
@@ -484,6 +663,13 @@ def settle(
             "settle: set Outcome=%r on item %s (issue #%s, PR #%s merged=%s)",
             outcome_name, item_id, issue_number, pr_number, merged,
         )
+        option_id = (outcome_field.get("options") or {}).get(outcome_name) or ""
+        if not field_id or not option_id:
+            LOGGER.warning("settle: missing binding for Outcome/%r", outcome_name)
+            return
+
+        _set_single_select(board_token, board_id, item_id, field_id, option_id)
+        LOGGER.info("settle: Outcome=%r on item %s (issue #%s, PR #%s)", outcome_name, item_id, issue_number, pr_number)
     except Exception as exc:
         LOGGER.warning("settle failed for PR #%s: %s", pr_number, exc)
 
@@ -610,6 +796,9 @@ def add_issue_to_board(github_token: str, board_id: str, target_repo: str, issue
 
 def _str_to_bool(value: str) -> bool:
     """Parse a command-line boolean flag."""
+# ── CLI ───────────────────────────────────────────────────────────────────────
+
+def _str_to_bool(value: str) -> bool:
     lowered = value.strip().lower()
     if lowered in {"true", "1", "yes", "on"}:
         return True
@@ -684,6 +873,21 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Issue number to add to the board (used with --add-to-board).",
     )
+    """CLI entry point.
+
+    Subcommands (via flags):
+      --add-to-board --issue N   Add issue N to the Projects v2 board
+      --settle --pr N            Write final Outcome when PR N closes
+    """
+    parser = argparse.ArgumentParser(description="GitHub Projects v2 board manager for AgentOS.")
+    parser.add_argument("--add-to-board", action="store_true", help="Add an issue to the project board")
+    parser.add_argument("--issue", type=int, default=None, help="Issue number (required for --add-to-board)")
+    parser.add_argument("--settle", action="store_true", help="Run settlement for a closed PR")
+    parser.add_argument("--pr", dest="pr_number", type=int, default=None, help="PR number (for --settle)")
+    parser.add_argument("--merged", type=_str_to_bool, default=None, help="Whether PR was merged (for --settle)")
+    parser.add_argument("--token", default=None, help="GitHub token (defaults to GITHUB_TOKEN env)")
+    parser.add_argument("--event-path", default=None, help="Path to GHA event payload JSON")
+    parser.add_argument("--repo", default=None, help="owner/repo (defaults to TARGET_REPO env)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -734,6 +938,47 @@ def main(argv: list[str] | None = None) -> int:
     target_repo = args.repo or os.environ.get("TARGET_REPO", "")
     settle(token, pr_number, merged, target_repo=target_repo)
     return 0
+    token = args.token or os.environ.get("GITHUB_TOKEN", "")
+    target_repo = args.repo or os.environ.get("TARGET_REPO", "")
+
+    if args.add_to_board:
+        if not args.issue:
+            LOGGER.error("--issue is required with --add-to-board")
+            return 1
+        if not token:
+            LOGGER.error("GITHUB_TOKEN is not set")
+            return 1
+        if not target_repo:
+            LOGGER.error("TARGET_REPO is not set")
+            return 1
+        board_id = os.environ.get("BOARD_ID", "")
+        item_id = add_to_board(token, target_repo, args.issue, board_id=board_id or None)
+        return 0 if item_id else 1
+
+    if args.settle:
+        bindings = _load_bindings()
+        board_id = _resolve_board_id(bindings)
+        if not board_id:
+            LOGGER.info("board_id not configured; skipping settlement")
+            return 0
+
+        pr_number, merged = _pr_payload(args.event_path)
+        if args.pr_number is not None:
+            pr_number = args.pr_number
+        if args.merged is not None:
+            merged = args.merged
+        if not pr_number:
+            LOGGER.warning("No PR number available; skipping settlement")
+            return 0
+        if not token:
+            LOGGER.warning("No GitHub token available; skipping settlement")
+            return 0
+
+        settle(token, pr_number, merged, target_repo=target_repo)
+        return 0
+
+    parser.print_help()
+    return 1
 
 
 if __name__ == "__main__":
