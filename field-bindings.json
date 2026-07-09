@@ -1,0 +1,87 @@
+{
+  "schema_fingerprint": "sha256:bdd6262260b6085b010961ad16361c1051c5985a99fa3262e1d30fcfbd3f697d",
+  "board_id": "PVT_kwHOAAEVdc4Bc6El",
+  "generated_at": "2026-07-09T08:53:23.805526+00:00",
+  "fields": {
+    "Role": {
+      "node_id": "PVTSSF_lAHOAAEVdc4Bc6ElzhXfdrw",
+      "type": "single_select",
+      "options": {
+        "Builder": "4c767cc8",
+        "Reviewer": "bae1d8b1",
+        "Docs": "d982b3df",
+        "Watcher": "7239947e",
+        "Planner": "fd9d13d5",
+        "Janitor": "a51a4225",
+        "Archaeologist": "bc286e6d"
+      }
+    },
+    "Agent Status": {
+      "node_id": "PVTSSF_lAHOAAEVdc4Bc6ElzhXfdr0",
+      "type": "single_select",
+      "options": {
+        "Todo": "2b102005",
+        "In progress": "15dbf0d8",
+        "In review": "e4f0aec4",
+        "Changes requested": "cab9e3f1",
+        "Approved": "3f610bb4",
+        "Blocked": "cbcb6ec3",
+        "Planning": "be1184b4",
+        "Plan": "0b31412a",
+        "Plan review": "676f50db",
+        "Intake": "055089e8",
+        "Intake review": "136cfc0d",
+        "Done": "e570dfab"
+      }
+    },
+    "Max turns": {
+      "node_id": "PVTF_lAHOAAEVdc4Bc6ElzhXfdr4",
+      "type": "number"
+    },
+    "Model": {
+      "node_id": "PVTSSF_lAHOAAEVdc4Bc6ElzhXfdr8",
+      "type": "single_select",
+      "options": {
+        "claude-haiku": "f2c34e16",
+        "claude-sonnet": "b642e643",
+        "gpt-4o-mini": "9bbebffb",
+        "gemini-flash": "449afaee",
+        "kimi-k2": "f9437759"
+      }
+    },
+    "Outcome": {
+      "node_id": "PVTSSF_lAHOAAEVdc4Bc6ElzhXfdsQ",
+      "type": "single_select",
+      "options": {
+        "Provisional": "fdf0b571",
+        "Merged": "a1ad895f",
+        "Closed unmerged": "ae8e74b2",
+        "CI failed": "6210e681",
+        "Reverted": "8b61e451",
+        "Abandoned": "0ad0f046"
+      }
+    },
+    "Clean exit": {
+      "node_id": "PVTSSF_lAHOAAEVdc4Bc6ElzhXfdsU",
+      "type": "single_select",
+      "options": {
+        "Clean": "75ceb6a1",
+        "Crashed": "b1ac6fb6",
+        "Max turns": "a73ed52b",
+        "Infra failure": "1808770e"
+      }
+    },
+    "Cost to date": {
+      "node_id": "PVTF_lAHOAAEVdc4Bc6ElzhXfdsY",
+      "type": "number"
+    },
+    "Turns": {
+      "node_id": "PVTF_lAHOAAEVdc4Bc6ElzhXfdsc",
+      "type": "number"
+    },
+    "Attempts": {
+      "node_id": "PVTF_lAHOAAEVdc4Bc6ElzhXfdsg",
+      "type": "number"
+    }
+  }
+}
