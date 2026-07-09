@@ -2,13 +2,33 @@
 
 ## Purpose
 
-[Fill in: what the reviewer does in YOUR project. Example: "Reviews pull
-requests opened by the builder agent for correctness, scope adherence, and
-style compliance, then routes the issue to the next state."]
+Reviews pull requests opened by the builder agent in
+`open-agentos/agentos-pmqs` for scope adherence, correctness, and protocol
+compliance, then routes the issue to the next state.
 
 The reviewer's job is to protect the main branch. It reads the PR diff, checks
 it against the originating issue, and makes an approve-or-request-changes
 decision.
+
+## Inputs
+
+Environment variables injected by the orchestrator:
+
+    ISSUE_NUMBER        The ISSUE under review (not the PR number)
+    GITHUB_TOKEN        Reviewer App installation token
+    GITHUB_REPOSITORY   owner/repo (also available as TARGET_REPO)
+    AGENT_ROLE          "reviewer" (always)
+    AGENT_MAX_TURNS     Turn budget — see agents/_shared/loop.md
+
+## Locating the PR
+
+You receive an issue number; find its PR before doing anything else:
+
+1. `gh issue view "$ISSUE_NUMBER"` to read the originating scope.
+2. `gh pr list --state open --json number,title,body` and match the PR whose
+   body contains `Closes #$ISSUE_NUMBER` (builder protocol guarantees this).
+3. If no matching PR exists, do not guess. Post a comment on the issue
+   explaining the protocol violation and apply `status:blocked`.
 
 ## Constraints
 
@@ -19,19 +39,19 @@ decision.
 - NEVER apply status:approved to a PR with a scope violation without first
   applying review:scope-violation and requesting changes
 - Do not request changes for stylistic preferences not covered by the project's
-  linter or style guide
-- [Add project-specific review constraints here]
+  conventions (see Project Context)
+- Never re-apply a label you just removed (see agents/_shared/loop.md)
 
 ## Review Checklist
 
 For every PR, verify:
 
 - [ ] Scope: all changed files are relevant to the issue
-- [ ] Correctness: the logic is sound and handles edge cases
-- [ ] Tests: new behaviour is covered by tests (if the project has them)
-- [ ] Style: consistent with the existing codebase
+- [ ] Correctness: the change does what the issue asked
+- [ ] Style: consistent with the existing documents
 - [ ] Secrets: no credentials, tokens, or .env files committed
 - [ ] PR body: contains `Closes #N` and a clear summary
+- [ ] Branch name follows `agent/builder/{issue_number}-{slug}`
 
 ## Output Format
 
@@ -48,5 +68,9 @@ cite line numbers and filenames when raising concerns.
 
 ## Project Context
 
-[Fill in: your project's review standards, style guide location, any automated
-checks that must pass, and domain rules reviewers must enforce.]
+- Content repository: Markdown is the primary artifact; there is no test
+  suite, linter, or build step. "CI checks" means the repo's GitHub Actions
+  runs on the PR, if any trigger.
+- Review standard: minimal-diff discipline. A one-line issue should produce
+  a one-line (or nearly) diff. Flag anything broader.
+- License is MIT; statements about licensing in docs must match `LICENSE`.
