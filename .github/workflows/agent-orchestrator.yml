@@ -29,6 +29,16 @@ jobs:
   orchestrate:
     name: Route label to agent
     runs-on: ubuntu-latest
+    outputs:
+      agent_role: ${{ steps.usage.outputs.agent_role }}
+      issue_number: ${{ steps.usage.outputs.issue_number }}
+      duration_s: ${{ steps.usage.outputs.duration_s }}
+      tokens_in: ${{ steps.usage.outputs.tokens_in }}
+      tokens_out: ${{ steps.usage.outputs.tokens_out }}
+      cache_write: ${{ steps.usage.outputs.cache_write }}
+      cache_read: ${{ steps.usage.outputs.cache_read }}
+      cost_usd: ${{ steps.usage.outputs.cost_usd }}
+      turns: ${{ steps.usage.outputs.turns }}
     # Only run when a status:* label was just applied (issues or PRs)
     if: >
       (github.event_name == 'issues' && github.event.action == 'labeled' &&
@@ -133,7 +143,9 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Run agent
         if: env.AGENT_ROLE != 'skip'
-        run: 'cat agents/$AGENT_ROLE/AGENT.md | claude -p --dangerously-skip-permissions --output-format json --max-turns $AGENT_MAX_TURNS'
+        run: |
+          set -o pipefail
+          cat agents/$AGENT_ROLE/AGENT.md | claude -p --dangerously-skip-permissions --output-format json --max-turns $AGENT_MAX_TURNS | tee /tmp/agent-result.json
         env:
           AGENT_ROLE: ${{ env.AGENT_ROLE }}
           ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
@@ -144,6 +156,37 @@ jobs:
           LLM_API_KEY: ${{ env.LLM_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
+      # -----------------------------------------------------------------------
+      # Extract token usage + cost from the runner's JSON result
+      # Runs even when the agent step fails, so failed runs still report spend.
+      # -----------------------------------------------------------------------
+      - name: Extract usage
+        id: usage
+        if: always() && env.AGENT_ROLE != 'skip'
+        run: |
+          F=/tmp/agent-result.json
+          echo "agent_role=$AGENT_ROLE"     >> "$GITHUB_OUTPUT"
+          echo "issue_number=$ISSUE_NUMBER" >> "$GITHUB_OUTPUT"
+          if [ -s "$F" ] && jq -e . "$F" >/dev/null 2>&1; then
+            {
+              echo "tokens_in=$(jq -r '.usage.input_tokens // 0' $F)"
+              echo "tokens_out=$(jq -r '.usage.output_tokens // 0' $F)"
+              echo "cache_write=$(jq -r '.usage.cache_creation_input_tokens // 0' $F)"
+              echo "cache_read=$(jq -r '.usage.cache_read_input_tokens // 0' $F)"
+              echo "cost_usd=$(jq -r '.total_cost_usd // 0 | tostring' $F)"
+              echo "turns=$(jq -r '.num_turns // 0' $F)"
+              echo "duration_s=$(jq -r '((.duration_ms // 0) / 1000 | round)' $F)"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "No parseable runner result at $F — reporting zeros."
+            for k in tokens_in tokens_out cache_write cache_read cost_usd turns duration_s; do
+              echo "$k=0" >> "$GITHUB_OUTPUT"
+            done
+          fi
+          echo "### Agent run usage" >> "$GITHUB_STEP_SUMMARY"
+          echo "Role: $AGENT_ROLE | Issue: #$ISSUE_NUMBER" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '"Tokens in/out: \(.usage.input_tokens // 0)/\(.usage.output_tokens // 0) | Cache w/r: \(.usage.cache_creation_input_tokens // 0)/\(.usage.cache_read_input_tokens // 0) | Cost: $\(.total_cost_usd // 0) | Turns: \(.num_turns // 0)"' "$F" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
   # ---------------------------------------------------------------------------
   # post-run-receipt — calls run-receipt.yml after orchestrate finishes
   # ---------------------------------------------------------------------------
@@ -151,9 +194,20 @@ jobs:
     name: Post run receipt
     needs: orchestrate
     if: always()
+    permissions:
+      issues: write
     uses: ./.github/workflows/run-receipt.yml
     with:
       job_status: ${{ needs.orchestrate.result }}
+      agent_role: ${{ needs.orchestrate.outputs.agent_role }}
+      issue_number: ${{ needs.orchestrate.outputs.issue_number }}
+      duration_s: ${{ needs.orchestrate.outputs.duration_s }}
+      tokens_in: ${{ needs.orchestrate.outputs.tokens_in }}
+      tokens_out: ${{ needs.orchestrate.outputs.tokens_out }}
+      cache_write: ${{ needs.orchestrate.outputs.cache_write }}
+      cache_read: ${{ needs.orchestrate.outputs.cache_read }}
+      cost_usd: ${{ needs.orchestrate.outputs.cost_usd }}
+      turns: ${{ needs.orchestrate.outputs.turns }}
     secrets: inherit
 
   # ---------------------------------------------------------------------------
@@ -163,6 +217,8 @@ jobs:
     name: Apply status:done on close
     runs-on: ubuntu-latest
     if: github.event_name == 'issues' && github.event.action == 'closed'
+    permissions:
+      issues: write
 
     steps:
       - name: Apply status:done label
