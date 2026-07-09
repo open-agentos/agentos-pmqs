@@ -122,6 +122,13 @@ jobs:
           echo "GITHUB_TOKEN=$AGENT_TOKEN" >> "$GITHUB_ENV"
 
       # -----------------------------------------------------------------------
+      # Install Claude Code CLI (required on ubuntu-latest runners)
+      # -----------------------------------------------------------------------
+      - name: Install Claude CLI
+        if: env.AGENT_ROLE != 'skip'
+        run: npm install -g @anthropic-ai/claude-code
+
+      # -----------------------------------------------------------------------
       # Run the agent (cat agents/$AGENT_ROLE/AGENT.md | claude -p --dangerously-skip-permissions --output-format json --max-turns $AGENT_MAX_TURNS is replaced at install time)
       # -----------------------------------------------------------------------
       - name: Run agent
@@ -135,6 +142,7 @@ jobs:
           LLM_MODEL: ${{ env.LLM_MODEL }}
           AGENT_MAX_TURNS: ${{ env.AGENT_MAX_TURNS }}
           LLM_API_KEY: ${{ env.LLM_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
   # ---------------------------------------------------------------------------
   # post-run-receipt — calls run-receipt.yml after orchestrate finishes
