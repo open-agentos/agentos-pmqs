@@ -1,4 +1,3 @@
-<!-- agentOS:managed:begin role=workflows hash=034c6959 -->
 # =============================================================================
 # Agent Orchestrator — agentOS spec template
 # Template variables (replaced at install time):
@@ -210,4 +209,3 @@ jobs:
           GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
           TARGET_REPO: ${{ github.repository }}
           BOARD_ID: ${{ vars.BOARD_ID }}
-<!-- agentOS:managed:end -->
