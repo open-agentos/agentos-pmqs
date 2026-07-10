@@ -1,0 +1,14 @@
+blocks_skipped_total: 0
+completed_at: '2026-07-10T12:56:23.933536+00:00'
+conflicts: 0
+dry_run: false
+errors: []
+files_changed:
+- blocks_skipped: 0
+  blocks_updated: 1
+  path: agentOS.yaml
+- blocks_skipped: 0
+  blocks_updated: 1
+  path: field-bindings.json
+from_version: '1.2'
+to_version: v1.2.3

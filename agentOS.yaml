@@ -8,7 +8,7 @@
 # Then provision your repository with:
 #   agentOS apply --repo owner/my-repo
 
-specVersion: "1.2"
+specVersion: "1.2.3"
 specId: "github-agentOS"
 
 metadata:
