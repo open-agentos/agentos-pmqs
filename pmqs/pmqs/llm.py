@@ -136,7 +136,43 @@ def _resolve_api() -> _Resolved:
     return _Resolved(model=model, base_url="", api_key=api_key)
 
 
-def _resolve() -> _Resolved:
+def _resolve_from_settings(cfg: dict[str, Any]) -> _Resolved:
+    """Build a resolved config from saved Settings (Settings > env > Hermes).
+
+    api_key precedence: inline raw key > env var named by api_key_ref (process env,
+    then ~/.hermes dotenv). Model is used as-is (assumed already provider-prefixed for
+    native providers, e.g. 'anthropic/claude-...').
+    """
+    provider = cfg.get("provider", "")
+    model = cfg.get("model") or "anthropic/claude-haiku-4-5-20251001"
+    base_url = (cfg.get("base_url") or "").rstrip("/")
+
+    api_key = cfg.get("api_key_raw") or ""
+    if not api_key:
+        ref = cfg.get("api_key_ref") or ""
+        if ref:
+            dotenv = _load_hermes_env(_HERMES_HOME)
+            api_key = os.environ.get(ref) or dotenv.get(ref, "")
+    if not api_key:
+        raise LlmUnavailable(
+            f"Settings LLM: no API key (checked inline + env '{cfg.get('api_key_ref')}')"
+        )
+
+    if base_url:
+        return _Resolved(
+            model=f"openai/{model}" if not model.startswith("openai/") else model,
+            base_url=base_url, api_key=api_key,
+        )
+    # Native provider path: ensure model is provider-prefixed.
+    if provider in _NATIVE_PROVIDERS and "/" not in model:
+        model = f"{provider}/{model}"
+    return _Resolved(model=model, base_url="", api_key=api_key)
+
+
+def _resolve(settings_cfg: dict[str, Any] | None = None) -> _Resolved:
+    # Settings take precedence when provided and non-empty.
+    if settings_cfg:
+        return _resolve_from_settings(settings_cfg)
     mode = os.environ.get("PMQS_LLM_MODE", "hermes").lower()
     if mode == "off":
         raise LlmUnavailable("PMQS_LLM_MODE=off")
@@ -150,13 +186,15 @@ def is_enabled() -> bool:
     return os.environ.get("PMQS_LLM_MODE", "hermes").lower() != "off"
 
 
-def complete(system: str, user: str, *, temperature: float = 0.2, max_tokens: int = 800) -> str:
+def complete(system: str, user: str, *, settings_cfg: dict[str, Any] | None = None,
+             temperature: float = 0.2, max_tokens: int = 800) -> str:
     """Single-shot completion. Raises LlmUnavailable if no LLM is configured/reachable.
 
-    Kept deliberately small: framing/dedup only need one round-trip. Callers must
-    catch exceptions and fall back — LLM failure is never fatal to the pipeline.
+    When `settings_cfg` is provided (from pmqs.settings.get_llm), it takes precedence
+    over env/Hermes resolution. Callers must catch exceptions and fall back — LLM
+    failure is never fatal to the pipeline.
     """
-    resolved = _resolve()
+    resolved = _resolve(settings_cfg)
     try:
         import litellm
     except ImportError as exc:  # pragma: no cover

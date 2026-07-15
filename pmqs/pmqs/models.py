@@ -59,9 +59,28 @@ class Session(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
     topic: Mapped[str | None] = mapped_column(Text)
     question_id: Mapped[str | None] = mapped_column(ForeignKey("questions.id"))
-    status: Mapped[str] = mapped_column(Text, nullable=False, default="open")  # open|closed
+    parent_id: Mapped[str | None] = mapped_column(ForeignKey("sessions.id"))  # branching
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="open")  # open | closed
+    position_doc: Mapped[str | None] = mapped_column(Text)  # JSON, generate-once (Phase 2)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
     closed_at: Mapped[str | None] = mapped_column(Text)
+
+
+class SessionMessage(Base):
+    __tablename__ = "session_messages"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id"), nullable=False)
+    role: Mapped[str] = mapped_column(Text, nullable=False)  # system | pm | assistant
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
+
+
+class Setting(Base):
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False, default="{}")  # JSON value
 
 
 class Outcome(Base):

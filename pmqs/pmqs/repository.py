@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs.models import Outcome, Question, Session
+from pmqs.models import Outcome, Question, Session, SessionMessage
 
 
 def _now() -> str:
@@ -75,6 +75,55 @@ def set_question_score(db: OrmSession, qid: str, score: float, dims: dict[str, A
     q.updated_at = _now()
     db.commit()
     return q
+
+
+# --- Sessions (Phase 2 war-room) ---
+def open_session(db: OrmSession, *, topic: str | None = None,
+                 question_id: str | None = None, parent_id: str | None = None) -> Session:
+    s = Session(topic=topic, question_id=question_id, parent_id=parent_id, status="open")
+    db.add(s)
+    db.commit()
+    return s
+
+
+def get_session_row(db: OrmSession, sid: str) -> Session | None:
+    return db.get(Session, sid)
+
+
+def close_session(db: OrmSession, sid: str) -> Session | None:
+    s = db.get(Session, sid)
+    if s is None:
+        return None
+    s.status = "closed"
+    s.closed_at = _now()
+    db.commit()
+    return s
+
+
+def set_position_doc(db: OrmSession, sid: str, doc: dict[str, Any]) -> Session | None:
+    s = db.get(Session, sid)
+    if s is None:
+        return None
+    s.position_doc = json.dumps(doc)
+    db.commit()
+    return s
+
+
+def add_message(db: OrmSession, session_id: str, *, role: str, content: str) -> SessionMessage:
+    m = SessionMessage(session_id=session_id, role=role, content=content)
+    db.add(m)
+    db.commit()
+    return m
+
+
+def list_messages(db: OrmSession, session_id: str) -> list[SessionMessage]:
+    return list(
+        db.scalars(
+            select(SessionMessage)
+            .where(SessionMessage.session_id == session_id)
+            .order_by(SessionMessage.created_at)
+        )
+    )
 
 
 # --- Outcomes ---
