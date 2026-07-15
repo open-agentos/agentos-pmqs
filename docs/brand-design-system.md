@@ -5,8 +5,8 @@
 colour/type tokens, and the backlog of open refinements.*
 
 **Status:** Draft 1 — directionally confirmed, not finished.
-**Still open:** §2 (the logo) and the outcome-type colour question in §3.
-**Settled:** §1, §4, §5, §6, and the remainder of §3.
+**Still open:** §2 (the logo) — specifically the per-facet bevel.
+**Settled:** §1, §3, §4, §5, §6.
 
 > **Implementers:** before changing `pmqs/pmqs/web/templates/app.html`, read
 > `pmqs/pmqs/web/TEMPLATE-CONTRACT.md`. That file is production code — `render.py`
@@ -242,20 +242,73 @@ Ratios against `--bg-main` (`#12181c`):
 1.88:1 on `--bg-main` it is effectively invisible as text. Any foreground use needs a
 lightened derivative that has been measured.
 
-### Open: outcome-type colour coding
+### Settled: hue does not carry type identity
 
-The Outcomes ledger colour-codes by type (Issue / Policy / Document / Meeting /
-Question). **This palette cannot currently express that**, for three reasons:
+The Outcomes ledger previously colour-coded by type (Issue / Policy / Document /
+Meeting / Question) in teal / brass / violet / sky / grey. **That is retired.** Type
+identity is carried by the word, and hue is reserved for state.
 
-1. There is no violet or sky — Document and Meeting have no hue.
-2. The accents above are *role*-based (action, success, telemetry, risk), not
-   *identity*-based. Reusing coral for "Meeting" would say "error."
-3. Teal, the one obvious mapping for Issue, fails contrast as a foreground (above).
+Four reasons, in order of weight:
 
-This is unresolved and tracked separately. It blocks the token migration. Do not guess.
+**1. Hue was redundant.** The tag already renders the type as text
+(`<span class="ledger-tag issue">Issue</span>`), as does the summary strip. The colour
+was decoration on top of a label that already carried the fact unambiguously.
+
+**2. Hue inflation.** In this system saturated hue means *"attend to this"* — gold is
+resolution, coral is risk, cyan is live. That role language works because it is scarce.
+Type is not a state needing attention; it's a neutral fact about a row, like a date.
+Spending attention-grabbing colour on it teaches users that colour here is decorative,
+and once they've learned that, the gold CTA stops meaning anything. Identity hues don't
+merely fail to help — they devalue the semantic ones.
+
+**3. The old set was not distinguishable anyway.** Machado et al. (2009) simulation,
+ΔE2000 between the retired tag colours:
+
+| Pair | Normal | Deuteranomaly | Protanomaly |
+|---|---|---|---|
+| violet vs sky | 18.3 | **4.4** | **6.5** |
+| teal vs violet | 28.0 | **5.1** | **9.7** |
+| teal vs sky | 15.3 | **8.6** | **10.0** |
+
+ΔE2000 ≈ 2.3 is a just-noticeable difference between *adjacent* patches; 10px separated
+tags need far more. Under deuteranomaly (~6% of men) teal, violet and sky collapse into
+one another — five categories become two groups. Even on normal vision, sky vs grey is
+ΔE 11.5. It was weak for everyone and broken for roughly 1 in 12 men.
+
+Extending the palette instead would have required five hues mutually separable under
+both deuteranomaly and protanomaly, at 10px, on a near-black background, in a muted
+register, *after* gold/cyan/coral/sage are reserved. That gamut is empty. Any set that
+satisfied the constraint would be saturated enough to wreck §1's voice.
+
+**4. Brand fit.** A five-hue ledger reads as a task board. Outcomes is a register of work
+product — closer to a bound logbook. The PM should feel they produced things, not that
+they have tickets. Colour arrives when something is genuinely resolved, which is the same
+idea as §2's tail: clarity arriving late, and only once earned.
+
+> *A note on colour psychology, since it tends to get invoked here:* most of it —
+> "violet feels creative," "blue builds trust" — is weakly replicated and culturally
+> contingent, and no decision in this system rests on it. What is well-supported is
+> **salience** (saturation and contrast draw the eye, largely independent of hue) and
+> **semantic consistency** (a colour meaning one thing is processed faster than one
+> meaning three). Both point the same way.
+
+**What this means in practice:**
+
+- All `.ledger-tag.*` variants share one neutral treatment; the word carries the type.
+- Summary-strip numbers are `--text-primary`, not per-type hues.
+- `--violet` and `--sky` (and their `-dim` variants) are **deleted** from the palette.
+- Hue on a ledger row is free to express genuine state: an Issue pending its push to
+  GitHub is a pending action → `--accent-gold`; once pushed → `--accent-sage`; risk →
+  `--pulse-coral`.
+
+Facet-derived glyphs (§5) may be explored **only** if word-scanning measurably drags in
+a long ledger. A glyph beside the word is a second redundancy on the same fact — it must
+earn its place with evidence, not inherit it from the colour removed here. Default to
+not building it.
 
 **Don't**: use `--accent-sage` or `--accent-teal` as a page background; don't introduce
-ivory-cream as a background on any surface other than the document surface.
+ivory-cream as a background on any surface other than the document surface; don't
+reintroduce identity hues.
 
 ---
 
@@ -322,8 +375,10 @@ No literal debate props. Any icon system should be derived from the logo's own v
 mark, not a separate illustration layer. Build only as-needed per UI surface; don't
 pre-populate a large decorative set.
 
-*(Note: this section is also the most promising answer to the outcome-type colour question
-in §3 — carrying type identity in facet-derived form rather than four more hues.)*
+*(Note: facet-derived glyphs were considered as a carrier for outcome-type identity and
+deliberately **not** adopted — see §3. The type is already carried by its text label; a
+glyph would be a second redundancy on the same fact. Explore only with evidence that
+word-scanning is too slow.)*
 
 ---
 
@@ -373,19 +428,17 @@ Priority order for polishing:
    in both the ring and tail should carry its own subtle inner/outer edge treatment so it
    reads as an individual cut gem surface, not a flat colour patch under one whole-shape
    rim.
-2. **Outcome-type colour coding** (§3) — a real design decision, currently blocking
-   implementation. §5 is the most promising direction.
-3. Validate tail proportions at full size and re-check confidence vs. clipped feeling.
-4. Explore removing internal ring seams in favour of colour-shift-only faceting.
-5. Introduce slight facet irregularity for a hand-cut (not lathed) feel.
-6. Design and test a simplified fallback glyph for small sizes (favicon/tab scale), and
+2. Validate tail proportions at full size and re-check confidence vs. clipped feeling.
+3. Explore removing internal ring seams in favour of colour-shift-only faceting.
+4. Introduce slight facet irregularity for a hand-cut (not lathed) feel.
+5. Design and test a simplified fallback glyph for small sizes (favicon/tab scale), and
    establish the real minimum size empirically.
-7. Once the mark is finalised, extend the embedded-bevel treatment (if it works) to
+6. Once the mark is finalised, extend the embedded-bevel treatment (if it works) to
    relevant UI surfaces (cards, active states) for visual consistency between brand mark
    and product chrome — exploratory, not a requirement.
 
-§1, §4, §5 and §6 are settled and should not be redesigned. §3 is settled **except** the
-outcome-type question. §2 is open.
+§1, §3, §4, §5 and §6 are settled and should not be redesigned. §2 is open — the
+per-facet bevel is the whole of the remaining brief.
 
 ---
 *PMQs Brand & Design System — Draft 1 Visual Identity*
