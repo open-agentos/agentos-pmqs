@@ -83,6 +83,23 @@ class Setting(Base):
     value: Mapped[str] = mapped_column(Text, nullable=False, default="{}")  # JSON value
 
 
+class NewsItem(Base):
+    """Raw news item (Phase 4). Staging store OUTSIDE the Issues substrate and separate
+    from `questions` — raw material is not evidence until promoted to a Question. Must
+    never be written to GitHub."""
+
+    __tablename__ = "news_items"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
+    source_label: Mapped[str] = mapped_column(Text, nullable=False, default="")  # e.g. query or publisher
+    title: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    url: Mapped[str] = mapped_column(Text, nullable=False, unique=True)  # dedup key
+    summary: Mapped[str | None] = mapped_column(Text)
+    published_at: Mapped[str | None] = mapped_column(Text)
+    fetched_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
+    processed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
 class Outcome(Base):
     __tablename__ = "outcomes"
 

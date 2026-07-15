@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs.models import Outcome, Question, Session, SessionMessage
+from pmqs.models import NewsItem, Outcome, Question, Session, SessionMessage
 
 
 def _now() -> str:
@@ -178,3 +178,42 @@ def outcome_payload(outcome: Outcome) -> dict[str, Any]:
         return json.loads(outcome.payload or "{}")
     except json.JSONDecodeError:
         return {}
+
+
+# --- News items (Phase 4 raw staging store) ---
+def create_news_item(
+    db: OrmSession,
+    *,
+    url: str,
+    title: str = "",
+    source_label: str = "",
+    summary: str | None = None,
+    published_at: str | None = None,
+) -> NewsItem | None:
+    """Create a raw news item. Dedup by URL: returns None if the URL already exists."""
+    existing = db.scalars(select(NewsItem).where(NewsItem.url == url)).first()
+    if existing is not None:
+        return None
+    item = NewsItem(
+        url=url, title=title, source_label=source_label,
+        summary=summary, published_at=published_at,
+    )
+    db.add(item)
+    db.commit()
+    return item
+
+
+def list_news_items(db: OrmSession, *, unprocessed_only: bool = False) -> list[NewsItem]:
+    stmt = select(NewsItem)
+    if unprocessed_only:
+        stmt = stmt.where(NewsItem.processed.is_(False))
+    stmt = stmt.order_by(NewsItem.fetched_at.desc())
+    return list(db.scalars(stmt))
+
+
+def mark_news_processed(db: OrmSession, item_ids: list[str]) -> None:
+    for iid in item_ids:
+        item = db.get(NewsItem, iid)
+        if item is not None:
+            item.processed = True
+    db.commit()
