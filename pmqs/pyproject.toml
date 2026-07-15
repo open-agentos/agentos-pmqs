@@ -1,0 +1,26 @@
+[project]
+name = "pmqs"
+version = "0.1.0"
+description = "PMQs — PM intelligence layer on top of Open AgentOS (Phase 0-1 build)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "sqlalchemy>=2.0",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0", "httpx>=0.27"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pmqs"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
