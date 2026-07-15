@@ -27,6 +27,12 @@ _LLM_DEFAULTS: dict[str, Any] = {
     "base_url": "",
 }
 
+_CONTEXT_KEY = "context_feed"
+# Phase 3: char cap for the assembled durable-outcome context block (product owner: ~4000).
+_CONTEXT_DEFAULTS: dict[str, Any] = {
+    "char_budget": 4000,
+}
+
 
 def _get(db: OrmSession, key: str) -> dict[str, Any] | None:
     row = db.get(Setting, key)
@@ -71,3 +77,16 @@ def set_llm(db: OrmSession, *, provider: str, model: str,
 def has_llm_override(db: OrmSession) -> bool:
     """True if the PM has explicitly saved LLM settings (vs pure defaults)."""
     return _get(db, _LLM_KEY) is not None
+
+
+def get_context_budget(db: OrmSession) -> int:
+    """Char cap for the assembled context-feed block (default 4000)."""
+    stored = _get(db, _CONTEXT_KEY) or {}
+    try:
+        return int(stored.get("char_budget") or _CONTEXT_DEFAULTS["char_budget"])
+    except (TypeError, ValueError):
+        return _CONTEXT_DEFAULTS["char_budget"]
+
+
+def set_context_budget(db: OrmSession, char_budget: int) -> None:
+    _set(db, _CONTEXT_KEY, {"char_budget": int(char_budget)})

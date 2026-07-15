@@ -8,6 +8,13 @@ from sqlalchemy.orm import Session as OrmSession
 from pmqs import repository
 from pmqs.db import get_session
 from pmqs.outcomes import push_question_to_issue
+from pmqs.outcomes.types import (
+    OutcomeValidationError,
+    build_document,
+    build_meeting,
+    build_policy,
+    build_question,
+)
 
 router = APIRouter()
 
@@ -36,11 +43,10 @@ def push_issue(qid: str, db: OrmSession = Depends(get_session)):
     return JSONResponse(result)
 
 
-# --- Phase 2: typed outcomes from the war-room outcome bar ---
+# --- Phase 2/3: typed outcomes from the war-room outcome bar ---
 # Issue is the only type promoted to real GitHub. policy|document|meeting|question are
-# written as hosted-store rows only. A policy MUST NEVER carry a github_ref (enforced in
-# repository.create_outcome). No per-type context-feed is built here — that is Phase 3.
-_HOSTED_TYPES = {"policy", "document", "meeting", "question"}
+# hosted-store rows only. A policy MUST NEVER carry a github_ref (enforced in
+# repository.create_outcome and reasserted in outcomes/types.py).
 
 
 @router.post("/workspace/{session_id}/outcome")
@@ -49,6 +55,8 @@ def create_typed_outcome(
     type: str = Form(...),
     title: str = Form(default=""),
     body: str = Form(default=""),
+    agenda: str = Form(default=""),
+    calendar_link: str = Form(default=""),
     question_id: str = Form(default=""),
     db: OrmSession = Depends(get_session),
 ):
@@ -63,14 +71,34 @@ def create_typed_outcome(
         result = push_question_to_issue(db, q, session_id=session_id)
         return JSONResponse({"type": "issue", **result})
 
-    if type in _HOSTED_TYPES:
-        outcome = repository.create_outcome(
-            db,
-            type=type,
-            payload={"title": title, "body": body},
-            session_id=session_id,
-            github_ref=None,  # hosted-store only; policy can never be pushed
-        )
-        return JSONResponse({"type": type, "outcome_id": outcome.id, "github_ref": None})
+    # Non-Issue types: build a validated per-type payload; hosted-store only.
+    try:
+        if type == "policy":
+            payload = build_policy(body or title)  # policy is free-form text
+        elif type == "document":
+            payload = build_document(title, body)
+        elif type == "meeting":
+            payload = build_meeting(title, agenda, calendar_link)
+        elif type == "question":
+            payload = build_question(title, body)
+        else:
+            return JSONResponse({"error": f"unknown outcome type: {type}"}, status_code=400)
+    except OutcomeValidationError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
 
-    return JSONResponse({"error": f"unknown outcome type: {type}"}, status_code=400)
+    outcome = repository.create_outcome(
+        db,
+        type=type,
+        payload=payload,
+        session_id=session_id,
+        github_ref=None,  # hosted-store only; policy can never be pushed
+    )
+    return JSONResponse({"type": type, "outcome_id": outcome.id, "github_ref": None})
+
+
+@router.post("/outcomes/{outcome_id}/deactivate")
+def deactivate_outcome(outcome_id: str, db: OrmSession = Depends(get_session)):
+    o = repository.deactivate_outcome(db, outcome_id)
+    if o is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse({"id": o.id, "active": o.active})

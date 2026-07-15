@@ -151,3 +151,30 @@ def create_outcome(
 
 def list_outcomes(db: OrmSession) -> list[Outcome]:
     return list(db.scalars(select(Outcome)))
+
+
+def list_durable_outcomes(db: OrmSession, *, active_only: bool = True) -> list[Outcome]:
+    """Durable (policy|document|meeting) outcomes, newest first. Feeds the context-feed."""
+    from pmqs.outcomes.types import DURABLE_TYPES
+
+    stmt = select(Outcome).where(Outcome.type.in_(DURABLE_TYPES))
+    if active_only:
+        stmt = stmt.where(Outcome.active.is_(True))
+    stmt = stmt.order_by(Outcome.created_at.desc())
+    return list(db.scalars(stmt))
+
+
+def deactivate_outcome(db: OrmSession, outcome_id: str) -> Outcome | None:
+    o = db.get(Outcome, outcome_id)
+    if o is None:
+        return None
+    o.active = False
+    db.commit()
+    return o
+
+
+def outcome_payload(outcome: Outcome) -> dict[str, Any]:
+    try:
+        return json.loads(outcome.payload or "{}")
+    except json.JSONDecodeError:
+        return {}

@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import ForeignKey, Text, Float
+from sqlalchemy import Boolean, ForeignKey, Text, Float
 from sqlalchemy.orm import Mapped, mapped_column
 
 from pmqs.db import Base
@@ -91,4 +91,5 @@ class Outcome(Base):
     session_id: Mapped[str | None] = mapped_column(ForeignKey("sessions.id"))
     payload: Mapped[str] = mapped_column(Text, nullable=False, default="{}")  # JSON
     github_ref: Mapped[str | None] = mapped_column(Text)  # only for type='issue' after push
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)  # durable-outcome lifecycle
     created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
