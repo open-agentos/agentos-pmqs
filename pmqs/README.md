@@ -46,3 +46,26 @@ uvicorn pmqs.api.app:app --reload
 ```bash
 pytest -q
 ```
+
+## Running locally (and the stale-server gotcha)
+
+```bash
+cd pmqs
+source .venv/bin/activate
+export PMQS_LLM_MODE=hermes            # inherit the local Hermes LLM provider
+# export BRAVE_API_KEY=...             # only needed for news ingestion
+uvicorn pmqs.api.app:app --reload      # http://127.0.0.1:8000/
+```
+
+If you see stale behaviour or a bind error (`address already in use`), a previous
+`uvicorn` is still holding port 8000 and serving OLD code. Kill it, confirm the port is
+free, then restart:
+
+```bash
+pkill -f "uvicorn pmqs" ; sleep 1
+python3 -c "import socket;s=socket.socket();print('BUSY' if s.connect_ex(('127.0.0.1',8000))==0 else 'FREE');s.close()"
+uvicorn pmqs.api.app:app --reload
+```
+
+Home is always the Inbox (`/`). A war-room opens from a question card; the Outcomes and
+Settings pages are reachable from the left rail.

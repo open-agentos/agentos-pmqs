@@ -27,6 +27,7 @@ def create_question(
     status: str = "proposed",
     score: float | None = None,
     score_dims: dict[str, Any] | None = None,
+    origin_session_id: str | None = None,
 ) -> Question:
     q = Question(
         title=title,
@@ -37,6 +38,7 @@ def create_question(
         status=status,
         score=score,
         score_dims=json.dumps(score_dims) if score_dims is not None else None,
+        origin_session_id=origin_session_id,
     )
     db.add(q)
     db.commit()
@@ -47,11 +49,40 @@ def get_question(db: OrmSession, qid: str) -> Question | None:
     return db.get(Question, qid)
 
 
-def list_questions(db: OrmSession, *, lens_tag: str | None = None) -> list[Question]:
+def list_questions(
+    db: OrmSession,
+    *,
+    lens_tag: str | None = None,
+    source: str | None = None,
+    include_all: bool = False,
+) -> list[Question]:
+    """Ranked Inbox list.
+
+    By default excludes 'dismissed' and 'promoted' (they've left the Inbox) — only
+    'proposed' and 'saved' remain. `include_all=True` returns every status (debug/API).
+    Optional lens_tag / source filters (server-side, for the filter pills).
+    """
     rows = list(db.scalars(select(Question)))
+    if not include_all:
+        rows = [q for q in rows if q.status in ("proposed", "saved")]
     if lens_tag:
         rows = [q for q in rows if lens_tag in q.lens_tags_list]
+    if source:
+        rows = [q for q in rows if q.source == source]
     # Ranked by score desc; unscored (None) sort last.
+    rows.sort(key=lambda q: (q.score is None, -(q.score or 0.0)))
+    return rows
+
+
+def list_session_proposed(db: OrmSession, session_id: str) -> list[Question]:
+    """Proposed questions produced by a specific war-room session's lens run (B6)."""
+    rows = list(
+        db.scalars(
+            select(Question)
+            .where(Question.origin_session_id == session_id)
+            .where(Question.status == "proposed")
+        )
+    )
     rows.sort(key=lambda q: (q.score is None, -(q.score or 0.0)))
     return rows
 
@@ -88,6 +119,22 @@ def open_session(db: OrmSession, *, topic: str | None = None,
 
 def get_session_row(db: OrmSession, sid: str) -> Session | None:
     return db.get(Session, sid)
+
+
+def find_open_session_for_question(db: OrmSession, question_id: str) -> Session | None:
+    """Most-recent OPEN, non-branch session anchored to this question, if any.
+
+    Used so 're-open the war-room for question X' reuses the existing session (and its
+    Position Doc / conversation) instead of spawning a fresh empty one each time.
+    """
+    stmt = (
+        select(Session)
+        .where(Session.question_id == question_id)
+        .where(Session.status == "open")
+        .where(Session.parent_id.is_(None))
+        .order_by(Session.created_at.desc())
+    )
+    return db.scalars(stmt).first()
 
 
 def close_session(db: OrmSession, sid: str) -> Session | None:

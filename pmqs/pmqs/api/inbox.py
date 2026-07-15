@@ -1,10 +1,10 @@
-"""api/inbox.py — FastAPI routes: list/score/filter/quick-add + Phase 0 render.
+"""api/inbox.py — FastAPI routes: list/score/filter/quick-add + Inbox render.
 
-GET  /                 -> full mockup HTML with real Inbox cards (ranked)
-POST /refresh          -> run trigger pipeline against live AgentOS state, persist
-POST /quick-add        -> create a source='pm' Question (scored by same formula)
-POST /questions/{id}/status -> update status (saved/dismissed/...)
-GET  /api/questions    -> JSON list (debug/inspection)
+GET  /                         -> Inbox HTML (persisted questions, ranked; always Inbox view)
+POST /refresh                  -> run trigger pipeline against live AgentOS state, persist
+POST /quick-add                -> create a source='pm' Question
+POST /questions/{id}/status    -> update status (saved/dismissed/...) then redirect to /
+GET  /api/questions            -> JSON list (debug/inspection; include_all)
 """
 from __future__ import annotations
 
@@ -16,70 +16,31 @@ from pmqs import repository, scoring
 from pmqs.agentos_client import AgentOSClient
 from pmqs.db import get_session
 from pmqs.pipeline import generate
+from pmqs.resolve import resolve_question_id
 from pmqs.web.render import render_inbox
 
 router = APIRouter()
 
 
 @router.get("/", response_class=HTMLResponse)
-def index(lens: str | None = Query(default=None), db: OrmSession = Depends(get_session)):
-    questions = repository.list_questions(db, lens_tag=lens)
-    # Phase 0 fallback: if the store is empty (no pipeline run yet), render live
-    # AgentOS issues directly so `/` shows a real Inbox out of the box.
-    if not questions:
-        try:
-            state = AgentOSClient().get_state()
-            questions = _live_shims(state)
-        except Exception:
-            questions = []
-    return HTMLResponse(render_inbox(questions))
-
-
-def _live_shims(state):
-    """Phase 0 read-through: map raw Issues into flat Question-shaped shims.
-
-    Shims carry a stable pseudo-id 'issue:<number>' so a card click can open a
-    war-room: /workspace/open resolves that pseudo-id by persisting the raw issue as
-    a Question on demand (cheap, no LLM).
-    """
-    shims = []
-    for issue in state.get("issues", []):
-        ref = f"#{issue.get('number')}"
-        shims.append(
-            _Shim(
-                id=f"issue:{issue.get('number')}",
-                title=issue.get("title", ""),
-                description=issue.get("body") or "",
-                lens_tags=[],
-                evidence=[{"type": "issue", "ref": ref, "url": issue.get("url", "")}],
-                source="system",
-                status="proposed",
-                score=None,
-            )
-        )
-    return shims
-
-
-class _Shim:
-    """Minimal duck-typed stand-in for a Question (Phase 0 live render only)."""
-
-    def __init__(self, **kw):
-        self.__dict__.update(kw)
-
-    @property
-    def lens_tags_list(self):
-        return self.__dict__.get("lens_tags", [])
-
-    @property
-    def evidence_list(self):
-        return self.__dict__.get("evidence", [])
+def index(
+    lens: str | None = Query(default=None),
+    source: str | None = Query(default=None),
+    news: str | None = Query(default=None),
+    db: OrmSession = Depends(get_session),
+):
+    # Canonical Inbox = persisted questions (proposed + saved), ranked. No silent swap to
+    # a live-GitHub view — an empty store shows an explicit empty-state (see render_inbox).
+    questions = repository.list_questions(db, lens_tag=lens, source=source)
+    return HTMLResponse(render_inbox(questions, flash=news))
 
 
 @router.post("/refresh")
 def refresh(db: OrmSession = Depends(get_session)):
+    # Pull questions from the repo via the structural-trigger pipeline, then show the Inbox.
     state = AgentOSClient().get_state()
-    questions = generate(db, state)
-    return JSONResponse({"generated": len(questions), "ids": [q.id for q in questions]})
+    generate(db, state)
+    return RedirectResponse(url="/", status_code=303)
 
 
 @router.post("/quick-add")
@@ -93,15 +54,23 @@ def quick_add(title: str = Form(...), lens: str = Form(default=""), db: OrmSessi
 
 @router.post("/questions/{qid}/status")
 def set_status(qid: str, status: str = Form(...), db: OrmSession = Depends(get_session)):
-    q = repository.update_question_status(db, qid, status)
-    if q is None:
+    # Resolve pseudo-ids (issue:<n>) to a real persisted Question first (B3), so the
+    # Save/Dismiss buttons work even on a fresh live-read Inbox.
+    real_id = resolve_question_id(db, qid)
+    if real_id is None:
         return JSONResponse({"error": "not found"}, status_code=404)
-    return JSONResponse({"id": q.id, "status": q.status})
+    repository.update_question_status(db, real_id, status)
+    # Browser button path → redirect back to the Inbox (not a JSON blob).
+    return RedirectResponse(url="/", status_code=303)
 
 
 @router.get("/api/questions")
-def api_questions(lens: str | None = Query(default=None), db: OrmSession = Depends(get_session)):
-    qs = repository.list_questions(db, lens_tag=lens)
+def api_questions(
+    lens: str | None = Query(default=None),
+    include_all: bool = Query(default=False),
+    db: OrmSession = Depends(get_session),
+):
+    qs = repository.list_questions(db, lens_tag=lens, include_all=include_all)
     return JSONResponse(
         [
             {

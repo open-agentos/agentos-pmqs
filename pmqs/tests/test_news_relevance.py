@@ -102,3 +102,26 @@ def test_news_question_never_carries_github_ref(db, monkeypatch):
     # news evidence must be a citation, never a github ref
     ev = qs[0].evidence_list[0]
     assert "github" not in str(ev).lower()
+
+
+def test_news_uses_llm_picked_lens(db, monkeypatch):
+    # B5: the LLM's per-item lens is used when valid.
+    _seed(db, 1)
+    settings.set_news_config(db, product_profile="P", top_n=3, min_relevance=0.1)
+    monkeypatch.setattr(relevance.llm, "is_enabled", lambda: True)
+    monkeypatch.setattr(relevance.llm, "complete_json", lambda s, u, **k: {"items": [
+        {"index": 0, "relevance": 0.9, "lens": "unit_economics", "title": "T", "description": "d"},
+    ]})
+    qs = relevance.promote_relevant(db)
+    assert qs[0].lens_tags_list == ["unit_economics"]
+
+
+def test_news_invalid_lens_falls_back(db, monkeypatch):
+    _seed(db, 1)
+    settings.set_news_config(db, product_profile="P", top_n=3, min_relevance=0.1)
+    monkeypatch.setattr(relevance.llm, "is_enabled", lambda: True)
+    monkeypatch.setattr(relevance.llm, "complete_json", lambda s, u, **k: {"items": [
+        {"index": 0, "relevance": 0.9, "lens": "not_a_real_lens", "title": "T", "description": "d"},
+    ]})
+    qs = relevance.promote_relevant(db)
+    assert qs[0].lens_tags_list == ["competitive_positioning"]  # default fallback

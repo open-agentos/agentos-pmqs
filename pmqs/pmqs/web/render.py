@@ -68,6 +68,16 @@ def _inject_before_body_close(src: str, snippet: str) -> str:
         return src + snippet
     return src[:idx] + snippet + src[idx:]
 
+
+def render_error(message: str, status: int = 404) -> str:
+    """Minimal styled HTML error page for browser-facing routes (not /api/*)."""
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>PMQs — {status}</title>
+<style>body{{background:#1a1a1f;color:#e8e6e0;font:15px/1.6 -apple-system,system-ui,sans-serif;
+display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
+.box{{text-align:center}} a{{color:#7fb8a6}} h1{{font-size:42px;margin:0 0 8px;color:#8a8780}}</style>
+</head><body><div class="box"><h1>{status}</h1><div>{html.escape(message)}</div>
+<div style="margin-top:16px"><a href="/">← Back to Inbox</a></div></div></body></html>"""
+
 # --- Inbox (Phase 0): region from quick-add close to the inbox-wrap close. ---
 _CARDS_REGION_RE = re.compile(
     r'(<div class="quick-add">.*?</div>\s*)(.*?)(\s*</div>\s*</div>\s*<!-- WORKSPACE VIEW -->)',
@@ -136,18 +146,30 @@ def question_card_html(q: Any) -> str:
         </div>"""
 
 
-def render_inbox(questions: list[Any], mockup_path: Path | None = None) -> str:
-    """Return the full mockup HTML with Inbox fixture cards replaced by real ones."""
+def render_inbox(questions: list[Any], mockup_path: Path | None = None,
+                 flash: str | None = None) -> str:
+    """Return the full mockup HTML with Inbox fixture cards replaced by real ones.
+
+    `flash` (optional): 'none' or an integer string N — renders a quiet banner for the
+    news-ingest result ("N new questions from news" / "nothing relevant today").
+    """
     path = mockup_path or config.MOCKUP_HTML
     src = Path(path).read_text(encoding="utf-8")
 
+    banner = _flash_banner(flash)
     if questions:
-        cards_html = "\n\n".join(question_card_html(q) for q in questions)
+        cards_html = banner + "\n\n".join(question_card_html(q) for q in questions)
     else:
-        cards_html = (
+        # Explicit empty-state with an action — do NOT silently swap to a different
+        # data source (that caused the home-page-changes-after-war-room bug).
+        cards_html = banner + (
             '        <div class="card system"><div class="card-main">'
-            '<div class="card-title">No questions yet — triggers have not produced any, '
-            'and none were added.</div></div></div>'
+            '<div class="card-title">Your Inbox is empty.</div>'
+            '<div class="card-meta">Pull questions from the repo, or add your own above.</div>'
+            '</div>'
+            '<div class="card-actions" onclick="event.stopPropagation()">'
+            '<div class="icon-btn primary" title="Pull from repo" onclick="pmqsRefresh()">⟳</div>'
+            '</div></div>'
         )
 
     def _replace(m: re.Match) -> str:
@@ -158,6 +180,7 @@ def render_inbox(questions: list[Any], mockup_path: Path | None = None) -> str:
         raise RuntimeError("Could not locate Inbox card region in mockup HTML")
 
     # Wire quick-add + card clicks to real endpoints (override mockup demo JS).
+    # Also force the Inbox view active on load so no war-room/workspace header bleeds in.
     inbox_js = _LIVE_JS_COMMON + """
 <script>
 // Override quick-add to create a real PM question server-side.
@@ -167,9 +190,42 @@ function addQuestion(){
   if(!val) return;
   pmqsPost('/quick-add', {title: val});
 }
+function pmqsRefresh(){ pmqsPost('/refresh', {}); }
+// The home page is always the Inbox — never leave another view active.
+document.addEventListener('DOMContentLoaded', function(){
+  if (typeof showView === 'function') showView('inbox');
+  // H2: wire filter pills to server-side filtering (?source=).
+  var map = {all: '/', asked: '/?source=pm', system: '/?source=system'};
+  document.querySelectorAll('.filter-pill').forEach(function(p){
+    var f = p.getAttribute('data-filter');
+    if (map[f] !== undefined) {
+      p.addEventListener('click', function(e){
+        e.stopImmediatePropagation();
+        window.location.href = map[f];
+      }, true);
+    }
+  });
+});
 </script>
 """
     return _inject_before_body_close(new_src, inbox_js)
+
+
+def _flash_banner(flash: str | None) -> str:
+    if not flash:
+        return ""
+    if flash == "none":
+        msg = "Nothing relevant in the news today."
+    else:
+        try:
+            n = int(flash)
+            msg = f"{n} new question{'s' if n != 1 else ''} from news."
+        except ValueError:
+            return ""
+    return (
+        f'        <div class="card system" style="border-left:3px solid #4a7d6e;">'
+        f'<div class="card-main"><div class="card-title">{html.escape(msg)}</div></div></div>\n\n'
+    )
 
 
 # ---------------------------------------------------------------- Workspace (Phase 2)

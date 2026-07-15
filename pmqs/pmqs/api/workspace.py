@@ -12,9 +12,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session as OrmSession
 
 from pmqs import lenses, position_doc, repository, warroom
-from pmqs.agentos_client import AgentOSClient
 from pmqs.db import get_session
-from pmqs.web.render import render_workspace
+from pmqs.resolve import resolve_question_id
+from pmqs.web.render import render_error, render_workspace
 
 router = APIRouter()
 
@@ -28,39 +28,25 @@ def _evidence_for(db: OrmSession, session) -> list[dict]:
 
 
 def _proposed_for(db: OrmSession, session) -> list:
-    # Proposed questions produced for this session are source='system', status='proposed'.
-    # For the prototype, show all currently-proposed system questions.
-    return [q for q in repository.list_questions(db) if q.status == "proposed" and q.source == "system"]
+    # B6: only the proposed questions THIS session's lens run produced (origin scoped),
+    # not every proposed system question globally.
+    return repository.list_session_proposed(db, session.id)
 
 
 @router.post("/workspace/open")
 def open_workspace(question_id: str = Form(default=""), db: OrmSession = Depends(get_session)):
-    qid = question_id or None
+    # Resolve pseudo-ids (issue:<n>) to a real Question (shared helper).
+    qid = resolve_question_id(db, question_id) if question_id else None
+
+    # B0b: reuse the existing open session for this question so its Position Doc and
+    # conversation persist across visits — don't spawn a fresh empty session each time.
+    if qid:
+        existing = repository.find_open_session_for_question(db, qid)
+        if existing is not None:
+            return RedirectResponse(url=f"/workspace/{existing.id}", status_code=303)
+
     topic = None
-    # Resolve a Phase-0 live-read pseudo-id 'issue:<number>' by persisting the raw
-    # issue as a Question on demand (cheap, no LLM) so the war-room has a real anchor.
-    if qid and qid.startswith("issue:"):
-        number = qid.split(":", 1)[1]
-        try:
-            state = AgentOSClient().get_state()
-            issue = next((i for i in state.get("issues", []) if str(i.get("number")) == number), None)
-        except Exception:
-            issue = None
-        if issue is not None:
-            ref = f"#{issue.get('number')}"
-            q = repository.create_question(
-                db,
-                title=issue.get("title", ""),
-                source="system",
-                description=issue.get("body") or "",
-                evidence=[{"type": "issue", "ref": ref, "url": issue.get("url", "")}],
-                status="proposed",
-            )
-            qid = q.id
-            topic = q.title
-        else:
-            qid = None
-    elif qid:
+    if qid:
         q = repository.get_question(db, qid)
         topic = q.title if q else None
     sess = repository.open_session(db, topic=topic, question_id=qid)
@@ -71,7 +57,7 @@ def open_workspace(question_id: str = Form(default=""), db: OrmSession = Depends
 def workspace_view(session_id: str, db: OrmSession = Depends(get_session)):
     sess = repository.get_session_row(db, session_id)
     if sess is None:
-        return HTMLResponse("<h1>Session not found</h1>", status_code=404)
+        return HTMLResponse(render_error("War-room session not found.", 404), status_code=404)
     doc = json.loads(sess.position_doc) if sess.position_doc else None
     return HTMLResponse(
         render_workspace(

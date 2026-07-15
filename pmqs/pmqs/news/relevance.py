@@ -22,9 +22,13 @@ from typing import Any
 from sqlalchemy.orm import Session as OrmSession
 
 from pmqs import context_feed, llm, repository, scoring, settings
+from pmqs.config import LENS_WEIGHTS
 from pmqs.dedup import dedup
 
 log = logging.getLogger(__name__)
+
+_LENS_KEYS = list(LENS_WEIGHTS.keys())
+_DEFAULT_LENS = "competitive_positioning"
 
 _SYSTEM = (
     "You are a product-manager's news analyst. Given a PRODUCT PROFILE and a batch of raw "
@@ -32,10 +36,11 @@ _SYSTEM = (
     "would prompt a real PM decision. For each RELEVANT item, write a provocative, "
     "decision-oriented QUESTION (title) the PM should consider, and a short DESCRIPTION "
     "that explains why it matters — hedged and attributed (use 'reportedly' / 'according "
-    "to {source}', never state second-hand news as fact). Score each item's relevance "
-    "0.0-1.0. Ignore irrelevant items. Respond as JSON: "
-    '{"items": [{"index": <int>, "relevance": <float>, "title": "...", "description": "..."}]}. '
-    "No markdown."
+    "to {source}', never state second-hand news as fact). Also pick the single most "
+    f"fitting LENS from: {', '.join(_LENS_KEYS)}. Score each item's relevance 0.0-1.0. "
+    "Ignore irrelevant items. Respond as JSON: "
+    '{"items": [{"index": <int>, "relevance": <float>, "lens": "<lens>", "title": "...", '
+    '"description": "..."}]}. No markdown.'
 )
 
 
@@ -110,11 +115,14 @@ def promote_relevant(db: OrmSession, config: dict[str, Any] | None = None) -> li
 
     candidates = []
     for rel, item, entry in scored:
+        # B5: use the LLM-picked lens if valid, else fall back to the default.
+        lens = entry.get("lens")
+        lens = lens if lens in _LENS_KEYS else _DEFAULT_LENS
         candidates.append(
             {
                 "title": str(entry["title"])[:200],
                 "description": str(entry.get("description", "")),
-                "lens_tags": ["competitive_positioning"],  # news default lens; LLM may refine later
+                "lens_tags": [lens],
                 "evidence": [_citation(item)],
                 "source": "news",
                 "_relevance": rel,

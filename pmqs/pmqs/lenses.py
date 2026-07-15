@@ -113,6 +113,7 @@ def run_session_lenses(db: OrmSession, session: Any) -> list:
             evidence=cand["evidence"],
             source="system",
             status="proposed",
+            origin_session_id=session.id,  # B6: scope proposed questions to this session
         )
         score, dims = scoring.score_question(q)
         repository.set_question_score(db, q.id, score, dims)

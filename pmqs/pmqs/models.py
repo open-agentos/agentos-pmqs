@@ -35,7 +35,8 @@ class Question(Base):
     score: Mapped[float | None] = mapped_column(Float)
     score_dims: Mapped[str | None] = mapped_column(Text)                          # JSON object
     status: Mapped[str] = mapped_column(Text, nullable=False, default="proposed")  # proposed|saved|dismissed|promoted
-    source: Mapped[str] = mapped_column(Text, nullable=False)                     # system|pm
+    source: Mapped[str] = mapped_column(Text, nullable=False)                     # system|pm|news
+    origin_session_id: Mapped[str | None] = mapped_column(Text)  # war-room session that produced it (lens output)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
     updated_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
 
