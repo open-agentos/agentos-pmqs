@@ -102,6 +102,50 @@ reveal the cut-gem depth on closer inspection.
   minimum-size fallback (likely a simplified silhouette or solid-fill version below
   ~24px).
 
+### The resolve doesn't survive at UI scale — measured
+
+This is the most important thing on this page and it is not a shading problem, so the
+per-facet bevel will not fix it.
+
+The tail's gold tip is **10.7 sq units of a 63504 viewBox — 0.017% of the mark.**
+Rasterised against `--bg-main`, gold runs **1:740** against teal. In pixels of gold:
+
+| render size | gold px² | |
+|---|---|---|
+| 16px (favicon) | 0.16 | invisible |
+| 24px (Draft 1's stated minimum) | 0.35 | invisible |
+| **30px (the left rail — the mark's main placement)** | **0.55** | **invisible** |
+| 48px | 1.40 | invisible |
+| 64px | 2.48 | a smudge |
+| 128px | ~11 | first legible |
+
+The facets are fine — all three ring tones are still distinguishable at 12px. Facet
+detail was never what breaks. **What breaks is the resolve**, and the resolve is the
+entire idea: *clarity arriving late, and only once earned*; eight lenses narrowing to one
+point.
+
+At every size PMQs actually renders this mark, it shows a teal ring with a teal tail and
+no resolution at all.
+
+**The cause is the taper, and it's structural.** §2 asks for gold in "the final one or
+two facets" *and* for the taper to accelerate toward the tip. Those two together
+guarantee that the facets carrying the meaning are the smallest ones on the mark. The
+eight tail facets by area:
+
+| facet | 1 | 2 | 3 | 4 | 5 | 6 | 7 (amber) | 8 (gold) |
+|---|---|---|---|---|---|---|---|---|
+| % of tail | 43.9 | 17.8 | 13.2 | 9.7 | 6.9 | 4.7 | 2.8 | **1.0** |
+
+**This is the design question §2 should answer**, ahead of the bevel: either re-cut the
+taper so the resolve has area at ~30px, or accept that the detailed mark is a hero/poster
+asset and the product wears the simplified glyph. The fallback currently implements the
+second, because it's the one that can be done without redesigning the mark.
+
+If the taper is re-cut so gold survives at ~30px, lower `MIN_DETAIL_PX` in
+`web/logo.py` and delete this section. `tests/test_logo.py` will tell you when that
+happens — it asserts the detailed mark shows *zero* gold at 16px, and starts failing the
+moment that stops being true.
+
 ### Known issues in the reference SVG
 
 To be fixed when the mark is integrated as an asset:
@@ -159,9 +203,10 @@ see the refinement note above for the preferred replacement approach.)*
 
 ### Logo usage rules
 
-- Minimum size: 24px; below this, drop facet detail and render as a simplified solid
-  glyph (to be designed). **The 24px figure is an estimate and has not been tested** —
-  verify empirically and update.
+- **Minimum size for the detailed mark: 64px.** Below that, `web/logo.py` returns the
+  simplified glyph automatically (`assets/logo-fallback.svg`) — call sites don't choose.
+  Draft 1 estimated 24px. Measured, that was wrong in both directions; see
+  "The resolve doesn't survive" below.
 - Clearspace: minimum 0.5× the mark's height on all sides.
 - Don't: recolour onto a light/cream field, add drop shadows or glow beyond the embedded
   per-facet bevel, or pair the mark with any secondary icon in the same lockup.
@@ -431,8 +476,9 @@ Priority order for polishing:
 2. Validate tail proportions at full size and re-check confidence vs. clipped feeling.
 3. Explore removing internal ring seams in favour of colour-shift-only faceting.
 4. Introduce slight facet irregularity for a hand-cut (not lathed) feel.
-5. Design and test a simplified fallback glyph for small sizes (favicon/tab scale), and
-   establish the real minimum size empirically.
+5. ~~Design and test a simplified fallback glyph~~ — done; `assets/logo-fallback.svg`,
+   minimum established empirically at 64px. But see "The resolve doesn't survive": the
+   glyph is a workaround for a taper problem, and re-cutting the taper is the better fix.
 6. Once the mark is finalised, extend the embedded-bevel treatment (if it works) to
    relevant UI surfaces (cards, active states) for visual consistency between brand mark
    and product chrome — exploratory, not a requirement.

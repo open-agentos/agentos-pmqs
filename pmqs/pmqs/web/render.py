@@ -78,7 +78,7 @@ def _inject_before_body_close(src: str, snippet: str) -> str:
 
 def render_error(message: str, status: int = 404) -> str:
     """Minimal styled HTML error page for browser-facing routes (not /api/*)."""
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>PMQs — {status}</title>
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>PMQs — {status}</title><link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>body{{background:#1a1a1f;color:#e8e6e0;font:15px/1.6 -apple-system,system-ui,sans-serif;
 display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
 .box{{text-align:center}} a{{color:#7fb8a6}} h1{{font-size:42px;margin:0 0 8px;color:#8a8780}}</style>
@@ -563,7 +563,7 @@ def render_settings(db: Any) -> str:
     n_top = html.escape(str(news.get("top_n", 3)))
     n_thresh = html.escape(str(news.get("min_relevance", 0.5)))
 
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>PMQs — Settings</title>
+    return f"""<!doctype html><html><head><meta charset="utf-8"><title>PMQs — Settings</title><link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>
 body{{background:#1a1a1f;color:#e8e6e0;font:14px/1.5 -apple-system,system-ui,sans-serif;margin:0;padding:40px}}
 .wrap{{max-width:560px;margin:0 auto}}

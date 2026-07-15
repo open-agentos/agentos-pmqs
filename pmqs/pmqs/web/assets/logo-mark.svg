@@ -46,8 +46,8 @@
     a favicon, where CSS custom properties have no document to resolve against.
     The ring's teal ramp is a genuine family of related tones and has no single
     token. But two values here ARE tokens and must track docs §3:
-        #dfb15b  = --accent-gold   (the tail's resolve)
-        #f4efe6  = --text-primary  (the centre point)
+        #dfb15b  = accent-gold   (the tail's resolve)
+        #f4efe6  = text-primary  (the centre point)
     tests/test_logo.py pins both. If you change a token, that test tells you.
 
   Don't (§2): recolour onto a light/cream field; add drop shadows or glow beyond
@@ -88,6 +88,6 @@
     <polygon points="408.25,197.5 425,260 375,260 364.95,222.5" fill="#29564f"/>
   </g>
 
-  <!-- Centre anchor. --text-primary. -->
+  <!-- Centre anchor. text-primary. -->
   <circle id="centre" cx="300" cy="260" r="6" fill="#f4efe6"/>
 </svg>
