@@ -1,0 +1,391 @@
+# PMQs (Product Managers Questions)
+### Brand & Design System — Draft 1 Visual Identity
+
+*Source of truth for brand voice, the logo concept and its reference implementation,
+colour/type tokens, and the backlog of open refinements.*
+
+**Status:** Draft 1 — directionally confirmed, not finished.
+**Still open:** §2 (the logo) and the outcome-type colour question in §3.
+**Settled:** §1, §4, §5, §6, and the remainder of §3.
+
+> **Implementers:** before changing `pmqs/pmqs/web/templates/app.html`, read
+> `pmqs/pmqs/web/TEMPLATE-CONTRACT.md`. That file is production code — `render.py`
+> splices data into it with regex anchored on its markup. Colours, fonts and spacing
+> are free to change; class names and structure are not, and the tests will not tell
+> you if you break them.
+
+---
+
+## 1. Brand Voice & Philosophy
+
+PMQs is a single-PM decision instrument built on a GitHub-primitives substrate. It is
+**not** a public-facing debate stage, and it is **not** combative.
+
+The right frame: **the gym, the viva with your professor, the private counseling
+session, the thinktank.** Rigorous, demanding, in service of making the PM sharper and
+their direction clearer — never a fight, never adversarial theater.
+
+The people it's for are multi-faceted, lateral thinkers — PMs who hold many perspectives
+at once and coordinate across wildly different disciplines. The visual identity should
+carry that complexity, not flatten it away.
+
+The core idea, stated plainly: **clarity comes from having fully thought something
+through — not from stripping complexity away.** (Closer to a hardcore-Zen framing of
+clarity through complete understanding than to minimalism-as-clarity.) Every part of
+this system should be judged against that idea: does it show genuine depth resolving
+into a clear point, or does it just look simple?
+
+**Do not**: use literal parliamentary/debate props (gavels, shields, scrolls), make the
+mark feel adversarial or combative, or over-flatten the logo into a bare geometric glyph
+— an earlier minimalist pass (a plain ring sliced by an arrow) was rejected specifically
+for reading as too simple and, incidentally, as an unrelated symbol.
+
+---
+
+## 2. Logo — "The Faceted Prism Q"
+
+> **This section is open.** The per-facet bevel below is the priority refinement and is
+> **not** present in the reference SVG.
+
+### Concept
+
+A ring built from many cut, faceted surfaces — like a cut gemstone — representing the
+many angles a PM has to hold in view at once. At the classic Q tail position (lower
+right), the facets stop closing the loop and instead taper outward into a short sequence
+of shrinking facets, holding the ring's teal tones for most of their length and
+resolving to gold only in the final one or two — clarity arriving late, and only once
+earned.
+
+**Embedded symbolism**: the tail is built from exactly eight facets — one for each of
+PMQs' eight analytical lenses (competitive positioning, growth/adoption, unit economics,
+risk, roadmap tradeoff, quality/reliability, org/execution, narrative/positioning). The
+eight perspectives narrow to a single point of resolution. This is intentionally subtle
+— it should read as a well-proportioned cut tail regardless of whether anyone clocks the
+count.
+
+### Construction notes (current state)
+
+- Ring: ~11 faceted quadrilateral segments around a circle, cut from a narrow family of
+  closely-related teal tones (soft contrast between adjacent facets — deliberately not
+  high-contrast, to avoid a "busy" or harsh read).
+- Tail: 8 tapering facets in the lower-right (classic Q) position, taper accelerates
+  toward the tip, starts slightly underneath the ring (overlapping/emerging from it
+  rather than merely touching its edge), colour holds teal through most of its length and
+  resolves to gold only in the last 1–2 facets.
+- A thin outer highlight/shadow rim was tried as a whole-shape bevel — **superseded by
+  the note below.**
+- A small cream centre point anchors the form.
+
+### Open refinement — priority item for the design agent
+
+The whole-shape outer rim bevel (single highlight arc + single shadow arc traced around
+the outside) is the **wrong** approach and should be replaced. What's wanted instead:
+**bevel embedded into each individual facet**, both its inner and outer edge, so every
+segment reads as its own small cut gem surface catching light — not the silhouette as a
+whole. Each facet should look dimensional on its own (e.g. a lighter edge along the side
+facing the implied light source, a darker edge along the opposite side, per facet)
+rather than relying on one rim treatment for the entire mark. Keep it subtle — visible,
+not glossy or heavy-handed; this should still read as flat/clean at a distance and only
+reveal the cut-gem depth on closer inspection.
+
+### Other refinements to explore
+
+- Confirm the tail's current length reads as confident and intentional, not clipped, now
+  that it's been shortened from earlier drafts.
+- Consider whether the ring's internal facet seams (currently soft strokes) are needed at
+  all, or whether colour-shift alone between adjacent facets could carry the faceted read
+  with even less visual noise.
+- Facet irregularity: the ring is currently a uniform-angle cut. A hand-cut, slightly
+  irregular facet arrangement may feel less mechanical without adding real complexity.
+- Verify legibility and character survive at small sizes (app icon / favicon scale) —
+  this is a more detailed mark than a typical scalable logo and needs a tested
+  minimum-size fallback (likely a simplified silhouette or solid-fill version below
+  ~24px).
+
+### Known issues in the reference SVG
+
+To be fixed when the mark is integrated as an asset:
+
+- **Dead canvas.** `viewBox` is `0 0 680 520`, but the artwork occupies roughly x≈175–425,
+  y≈135–480. Nearly half the canvas is empty — harmless in a document, actively harmful
+  as an asset.
+- **Baked-in text.** The `<text>` elements have hardcoded fill and no `font-family`, so
+  they render in the SVG UA default rather than the type stack in §4.
+- **Hardcoded fills.** Facet colours are literals rather than token references. Note the
+  ring's teal ramp is genuinely many closely-related tones, not one token — tokenising
+  it fully may not be desirable.
+- **Degenerate tail polygon.** The final tail facet specifies a duplicated vertex
+  (`411.3,371.3` twice), i.e. a quad that is really a triangle. It renders correctly;
+  it's cosmetic, but it reads as a copy-paste error.
+
+### Reference implementation (current best draft, as SVG)
+
+This is the actual working geometry from the latest round — use it as a literal starting
+point, not just a description.
+
+```svg
+<svg width="100%" viewBox="0 0 680 520" xmlns="http://www.w3.org/2000/svg">
+<g stroke="#1a2226" stroke-width="0.5" stroke-opacity="0.25">
+<polygon points="335.29,315.09 351.64,325.78 365.78,311.64 355.09,295.29" fill="#1f4d47"/>
+<polygon points="351.64,325.78 360.93,331.53 371.53,320.93 365.78,311.64" fill="#24504a"/>
+<polygon points="360.93,331.53 369.85,337.63 377.63,329.85 371.53,320.93" fill="#29544d"/>
+<polygon points="369.85,337.63 378.42,344.08 384.08,338.42 377.63,329.85" fill="#2e5850"/>
+<polygon points="378.42,344.08 386.78,350.74 390.74,346.78 384.08,338.42" fill="#345d53"/>
+<polygon points="386.78,350.74 395.01,357.55 397.55,355.01 390.74,346.78" fill="#5f6d50"/>
+<polygon points="395.01,357.55 403.08,364.50 404.50,363.08 397.55,355.01" fill="#a5894a"/>
+<polygon points="403.08,364.50 411.3,371.3 411.3,371.3 404.50,363.08" fill="#dfb15b"/>
+</g>
+<g stroke="#1a2226" stroke-width="0.5" stroke-opacity="0.25">
+<polygon points="425,260 408.25,322.5 364.95,297.5 375,260" fill="#1f4d47"/>
+<polygon points="362.5,368.25 300,385 300,335 337.5,324.95" fill="#29564f"/>
+<polygon points="300,385 237.5,368.25 262.5,324.95 300,335" fill="#355f57"/>
+<polygon points="237.5,368.25 191.75,322.5 235.05,297.5 262.5,324.95" fill="#1f4d47"/>
+<polygon points="191.75,322.5 175,260 225,260 235.05,297.5" fill="#29564f"/>
+<polygon points="175,260 191.75,197.5 235.05,222.5 225,260" fill="#355f57"/>
+<polygon points="191.75,197.5 237.5,151.75 262.5,195.05 235.05,222.5" fill="#1f4d47"/>
+<polygon points="237.5,151.75 300,135 300,185 262.5,195.05" fill="#29564f"/>
+<polygon points="300,135 362.5,151.75 337.5,195.05 300,185" fill="#355f57"/>
+<polygon points="362.5,151.75 408.25,197.5 364.95,222.5 337.5,195.05" fill="#1f4d47"/>
+<polygon points="408.25,197.5 425,260 375,260 364.95,222.5" fill="#29564f"/>
+</g>
+<circle cx="300" cy="260" r="6" fill="#f4efe6"/>
+<text x="300" y="450" text-anchor="middle" font-size="42" font-weight="500" fill="#f4efe6" letter-spacing="-1">PMQs</text>
+<text x="300" y="480" text-anchor="middle" font-size="14" fill="#9aa5a9" letter-spacing="1">PRODUCT MANAGERS QUESTIONS</text>
+</svg>
+```
+
+*(Note: the outer rim bevel arcs from the previous round are intentionally omitted here —
+see the refinement note above for the preferred replacement approach.)*
+
+### Logo usage rules
+
+- Minimum size: 24px; below this, drop facet detail and render as a simplified solid
+  glyph (to be designed). **The 24px figure is an estimate and has not been tested** —
+  verify empirically and update.
+- Clearspace: minimum 0.5× the mark's height on all sides.
+- Don't: recolour onto a light/cream field, add drop shadows or glow beyond the embedded
+  per-facet bevel, or pair the mark with any secondary icon in the same lockup.
+
+---
+
+## 3. Colour Tokens
+
+```css
+:root {
+  /* Structure */
+  --bg-main: #12181c;
+  --bg-surface: #1a2226;
+  --bg-active: #212b30;
+  --border-default: #2e383d;
+  --border-muted: #232b2f;
+
+  /* Text */
+  --text-primary: #f4efe6;
+  --text-secondary: #9aa5a9;
+  --text-muted: #5f6a6d;
+
+  /* Structural accent (also the logo's ring family) — FILL ONLY, see below */
+  --accent-teal: #1f4d47;
+
+  /* Semantic */
+  --accent-gold: #dfb15b;    /* resolution / primary action / logo tail resolve */
+  --accent-sage: #8fae86;    /* success state only */
+  --pulse-cyan: #38bdf8;     /* telemetry / info */
+  --pulse-coral: #f87171;    /* risk / error */
+
+  /* Document surface — the §3 exception. See "Warm paper" below. */
+  --paper: #efe9dd;
+  --paper-ink: #2a2620;
+  --paper-muted: #6b6153;
+}
+```
+
+| Token | Value | Use |
+|---|---|---|
+| `--bg-main` | `#12181c` | App background |
+| `--bg-surface` | `#1a2226` | Panels, cards |
+| `--text-primary` | `#f4efe6` | Body/heading text |
+| `--accent-gold` | `#dfb15b` | Primary actions, active states, the logo's resolved point |
+| `--accent-sage` | `#8fae86` | Success/confirmation states only |
+| `--pulse-cyan` | `#38bdf8` | Telemetry, live status |
+| `--pulse-coral` | `#f87171` | Errors, risk flags |
+| `--paper` | `#efe9dd` | **Document surfaces only** — see below |
+
+### Warm paper — the one background exception
+
+Ivory-cream is a text/mark colour on all app chrome. **The single exception is the
+document surface** (position documents, artifact panels), where warm paper is a
+deliberate figure/ground inversion signalling *"this is a document, not UI."*
+
+That inversion is the product's signature device: the dark-ink/warm-paper contrast is
+what makes the war-room read as a document rather than a dashboard. Do not use cream as
+a background on any other surface.
+
+The document surface also carries its own typeface — see §4.
+
+### Contrast constraints (measured, not estimated)
+
+Ratios against `--bg-main` (`#12181c`):
+
+| Token | Ratio | Verdict |
+|---|---|---|
+| `--text-primary` | 15.63:1 | ✅ AA |
+| `--accent-gold` | 9.02:1 | ✅ AA |
+| `--pulse-cyan` | 8.36:1 | ✅ AA |
+| `--accent-sage` | 7.30:1 | ✅ AA |
+| `--text-secondary` | 7.10:1 | ✅ AA |
+| `--pulse-coral` | 6.47:1 | ✅ AA |
+| `--text-muted` | 3.21:1 | ⚠️ AA-large only — acceptable for faint metadata, but use knowingly |
+| `--accent-teal` | **1.88:1** | ❌ **fill only — never text or borders** |
+
+**`--accent-teal` is not a foreground colour.** It is the logo's ring fill family. At
+1.88:1 on `--bg-main` it is effectively invisible as text. Any foreground use needs a
+lightened derivative that has been measured.
+
+### Open: outcome-type colour coding
+
+The Outcomes ledger colour-codes by type (Issue / Policy / Document / Meeting /
+Question). **This palette cannot currently express that**, for three reasons:
+
+1. There is no violet or sky — Document and Meeting have no hue.
+2. The accents above are *role*-based (action, success, telemetry, risk), not
+   *identity*-based. Reusing coral for "Meeting" would say "error."
+3. Teal, the one obvious mapping for Issue, fails contrast as a foreground (above).
+
+This is unresolved and tracked separately. It blocks the token migration. Do not guess.
+
+**Don't**: use `--accent-sage` or `--accent-teal` as a page background; don't introduce
+ivory-cream as a background on any surface other than the document surface.
+
+---
+
+## 4. Typography
+
+> **Amended from Draft 1.** The original specified **Aeonik** for headers. Aeonik is a
+> commercial typeface from CoType and PMQs holds no licence for it, so it cannot ship.
+> Substituted with **DM Sans** — the closest free match to Aeonik's construction (a
+> geometric skeleton with neo-grotesque detailing), already available on Google Fonts,
+> so no self-hosting or static asset serving is required.
+>
+> Candidates considered and rejected: **Inter** (often cited as the closest match, but
+> it's already the body face — using it for headers too would collapse the header/body
+> distinction this section draws, and it's a neo-grotesque, not geometric); **Geist**
+> (thematically apt for a dark developer-tool palette, but not on Google Fonts and loses
+> Aeonik's geometry); **Space Grotesk** (geometric, but idiosyncratic in a way that
+> fights §1's "rigorous, not quirky" voice).
+
+| Role | Stack | Weight | Notes |
+|---|---|---|---|
+| Display / headers | `'DM Sans', system-ui, sans-serif` | 600–700 | Tracking tuned per size — see below |
+| Body copy | `'Inter', system-ui, sans-serif` | 400 | |
+| Monospace / telemetry | `'IBM Plex Mono', SFMono-Regular, Consolas, monospace` | 400 | Tracking 0.05em |
+| **Document surface** | `'Source Serif 4', Georgia, serif` | 500–700 | The paper panel (§3 exception) |
+
+Available as tokens: `--font-display`, `--font-body`, `--font-mono`, `--font-doc`.
+
+**The serif is not optional.** Draft 1 omitted it, but `Source Serif 4` is what sets the
+document surface. Since the paper panel stays (§3), the serif is part of the system and
+is documented here rather than left as an undeclared dependency.
+
+### Tracking must be tuned, not inherited
+
+Draft 1 specified `-0.03em` / `-0.01em`. Those figures were tuned to Aeonik's
+sidebearings and do **not** transfer to DM Sans. Tracking is set per-element by eye at
+real sizes.
+
+### Header roles map to these components
+
+Draft 1's table named "App Title (2.0rem)" and "Section Headers (H2, 1.3rem)". Neither
+exists in the product as such — the app has no `h1`/`h2` chrome, and the Inbox's section
+header was deliberately removed during design. The display face applies to:
+
+| Element | Size | Role |
+|---|---|---|
+| `.logo` | 20px | App title (until the §2 lockup replaces it) |
+| `.inbox-header` | 26px | Inbox view title |
+| `.outcomes-header` | 26px | Outcomes view title |
+
+⚠️ `h1`/`h2`/`h3` **stay on the serif.** The only heading element in the template is the
+`<h3>` inside the `.doc` paper panel. Applying the display face to `h1,h2,h3` would flip
+the document heading to sans and break the very surface §3's exception exists to protect.
+
+Sizes above are the layout's real values. Draft 1's 2.0rem/1.3rem figures describe a
+hierarchy the product doesn't have; if a larger display scale is wanted, that's a design
+change, not a typography migration.
+
+---
+
+## 5. Iconography
+
+No literal debate props. Any icon system should be derived from the logo's own vocabulary
+— cut facets, angled strokes, a single resolving point — so icons read as siblings of the
+mark, not a separate illustration layer. Build only as-needed per UI surface; don't
+pre-populate a large decorative set.
+
+*(Note: this section is also the most promising answer to the outcome-type colour question
+in §3 — carrying type identity in facet-derived form rather than four more hues.)*
+
+---
+
+## 6. Component Patterns
+
+⚠️ These specify **properties, not selectors.** Class names in `app.html` are
+load-bearing — see `pmqs/pmqs/web/TEMPLATE-CONTRACT.md`. Do not rename an existing class
+to match a name below without updating `render.py` in the same commit.
+
+```css
+.war-room-container {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+.tab-item.active {
+  color: var(--accent-gold);
+  border-bottom-color: var(--accent-gold);
+  font-weight: 600;
+}
+
+.pulse-metric-row {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.pulse-metric-value {
+  color: var(--text-primary);
+  font-weight: bold;
+}
+```
+
+Left-rail health metrics are **static** — an animated pulse was judged distracting. The
+left-column metrics concept itself stays.
+
+---
+
+## 7. Handoff Notes for Design Agent
+
+Priority order for polishing:
+
+1. **Per-facet embedded bevel** (§2) — the single highest-priority refinement. Each facet
+   in both the ring and tail should carry its own subtle inner/outer edge treatment so it
+   reads as an individual cut gem surface, not a flat colour patch under one whole-shape
+   rim.
+2. **Outcome-type colour coding** (§3) — a real design decision, currently blocking
+   implementation. §5 is the most promising direction.
+3. Validate tail proportions at full size and re-check confidence vs. clipped feeling.
+4. Explore removing internal ring seams in favour of colour-shift-only faceting.
+5. Introduce slight facet irregularity for a hand-cut (not lathed) feel.
+6. Design and test a simplified fallback glyph for small sizes (favicon/tab scale), and
+   establish the real minimum size empirically.
+7. Once the mark is finalised, extend the embedded-bevel treatment (if it works) to
+   relevant UI surfaces (cards, active states) for visual consistency between brand mark
+   and product chrome — exploratory, not a requirement.
+
+§1, §4, §5 and §6 are settled and should not be redesigned. §3 is settled **except** the
+outcome-type question. §2 is open.
+
+---
+*PMQs Brand & Design System — Draft 1 Visual Identity*
