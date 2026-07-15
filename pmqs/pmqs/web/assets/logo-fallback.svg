@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PMQs — simplified fallback glyph. Brand doc §2's small-size variant.
+  Same viewBox as logo-mark.svg, so the two are drop-in swappable.
+
+  ============================================================================
+  WHY THIS EXISTS, and why the threshold is 64px and not §2's 24px
+  ============================================================================
+
+  §2 estimated that facet detail stops working below 24px. Measured, that's
+  wrong in both directions.
+
+  The FACETS survive small — all three ring tones are still distinguishable at
+  12px. That was never the problem.
+
+  What dies is the RESOLVE. The tail's gold tip is 10.7 sq units of a 63504
+  viewBox — 0.017% of the mark. Rasterised against bg-main, gold to teal runs
+  1:740. In pixels:
+
+      16px  ->  0.16 px² of gold      48px  ->  1.40 px²
+      24px  ->  0.35 px²              64px  ->  2.48 px²
+      30px  ->  0.55 px²             128px  ->  ~11 px²   (first legible)
+
+  The rail renders the mark at 30px. So at its primary placement in the product,
+  the mark shows a teal ring with a teal tail and no resolution at all — §2's
+  entire idea ("clarity arriving late, and only once earned"; eight lenses
+  narrowing to one point) is carried by half a pixel.
+
+  The cause is the taper. §2 wants gold in "the final one or two facets" and the
+  taper to accelerate toward the tip, so the facets carrying the meaning are by
+  construction the smallest ones. The per-facet bevel won't fix that; it's
+  geometry, not shading.
+
+  ============================================================================
+  WHAT THIS GLYPH DOES DIFFERENTLY
+  ============================================================================
+
+  Keeps: the ring's 60deg gap at 45deg (the ring genuinely stops closing the
+  loop there — 11 facets at 30deg spacing, and the tail occupies the gap), the
+  ring's r=75..125 band, the tail's 45deg axis and its r=68..154 reach.
+
+  Changes: no facets or seams; one teal (accent-teal-fg, the ring family's
+  measured foreground member, chosen because a favicon sits on an uncontrolled
+  tab colour and accent-teal at 1.88:1 would vanish); a blunt taper instead of
+  a spike; and gold from r=118 outward — the tail's outer third rather than its
+  final 1%.
+
+  Measured result at 16px: 4 px² of gold, gold:teal 1:6, versus 0 px² for the
+  detailed mark. tests/test_logo.py pins this.
+
+  DESIGN AGENT: if you re-cut the mark's taper so the resolve survives at
+  ~30px, this glyph and its 64px threshold can shrink or disappear. That would
+  be the better fix. This is the honest workaround until then.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="174 134 252 252">
+  <!-- tail: teal holding, then resolving to gold from r=118 -->
+  <polygon points="329.70,326.47 371.22,355.66 395.66,331.22 366.47,289.70" fill="#5b8a83"/>
+  <polygon points="371.22,355.66 401.12,376.67 416.67,361.12 395.66,331.22" fill="#dfb15b"/>
+  <!-- ring: 315deg arc, leaving the 60deg tail gap centred on 45deg -->
+  <path d="M 325.88 356.59 A 100 100 0 1 0 396.59 285.88"
+        fill="none" stroke="#5b8a83" stroke-width="46" stroke-linecap="butt"/>
+</svg>
