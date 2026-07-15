@@ -72,8 +72,14 @@ h1,h2,h3,.serif{font-family:var(--font-doc);}
   border-right:1px solid var(--border-default);
   display:flex;flex-direction:column;padding:22px 18px;
 }
+/* §2 clearspace: >= 0.5x mark height on all sides. Mark is 30px, #rail pads
+   22px/18px, so the rule holds. */
+.logo-lockup{display:flex;align-items:center;gap:10px;margin-bottom:28px;}
+.logo-mark{flex-shrink:0;line-height:0;}
+.logo-mark svg{display:block;width:30px;height:30px;}
+.logo-text{min-width:0;}
 .logo{font-family:var(--font-display);font-size:20px;font-weight:700;letter-spacing:-0.01em;color:var(--text-primary);margin-bottom:2px;}
-.logo-sub{font-size:11px;color:var(--text-muted);margin-bottom:28px;letter-spacing:0.04em;}
+.logo-sub{font-size:11px;color:var(--text-muted);letter-spacing:0.04em;}
 .nav-item{
   padding:9px 12px;border-radius:6px;font-size:14px;color:var(--text-secondary);
   cursor:pointer;margin-bottom:2px;transition:background .15s, color .15s;
@@ -282,8 +288,18 @@ svg.pulse{width:100%;height:28px;display:block;}
 
   <!-- LEFT RAIL -->
   <div id="rail">
-    <div class="logo">PMQs</div>
-    <div class="logo-sub">acme-app · production</div>
+    <!-- LOGO LOCKUP. The mark is injected by render.py from web/logo.py, which
+         reads web/assets/logo-mark.svg — one source, because render_settings()
+         and render_error() build their own documents and #28 needs a favicon.
+         Opening this file directly in a browser shows the wordmark without the
+         mark; that's expected. -->
+    <div class="logo-lockup">
+      <span class="logo-mark"><!-- LOGO MARK --></span>
+      <div class="logo-text">
+        <div class="logo">PMQs</div>
+        <div class="logo-sub">acme-app · production</div>
+      </div>
+    </div>
 
     <div class="nav-item active" data-nav="inbox">Inbox <span class="nav-badge">5</span></div>
     <div class="nav-item" data-nav="workspace">Workspace <span class="nav-badge" id="ws-badge"></span></div>

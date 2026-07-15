@@ -60,6 +60,7 @@ These HTML comments are **structural markers, not documentation.** Do not tidy t
 | Comment | Status |
 |---|---|
 | `<!-- WORKSPACE VIEW -->` | **load-bearing** — `_CARDS_REGION_RE` matches it literally |
+| `<!-- LOGO MARK -->` | **load-bearing** — `_load_template()` replaces it with the mark from `logo.py`. Delete it and the logo silently disappears. |
 | `<!-- INBOX VIEW -->` | not currently matched; keep for symmetry |
 | `<!-- OUTCOMES VIEW -->` | not currently matched; keep for symmetry |
 | `<!-- LEFT RAIL -->` | not currently matched; keep for symmetry |
@@ -114,7 +115,33 @@ chosen in `question_card_html()` and must keep working as modifiers on `.card`.
 
 ---
 
-## 5. If you need to change an anchor
+## 5. The logo mark
+
+`templates/app.html` does **not** contain the mark. It contains a placeholder:
+
+```html
+<span class="logo-mark"><!-- LOGO MARK --></span>
+```
+
+`_load_template()` replaces that sentinel with the SVG from `logo.py`, which reads
+`assets/logo-mark.svg`. Every render path loads through `_load_template()`, so the splice
+happens in exactly one place.
+
+**Why it isn't just inline in the template:** `render_settings()` and `render_error()`
+build their own standalone documents, and #28 needs the same mark as a favicon. Inline
+would mean three copies and inevitable drift.
+
+**To change the mark, edit `assets/logo-mark.svg` and nothing else.** That file carries
+the design brief for §2's open per-facet bevel work.
+
+Consequence worth knowing: opening `app.html` directly in a browser shows the wordmark
+without the mark. That's expected — the file still opens and still renders, it just isn't
+the whole lockup outside the app.
+
+Classes `.logo-lockup`, `.logo-mark` and `.logo-text` are structural: `logo.py`'s
+`lockup_html()` and the template's rail markup both assume them.
+
+## 6. If you need to change an anchor
 
 Fine — it's not frozen forever, just coupled. Change both sides in the same commit:
 
@@ -125,7 +152,7 @@ Fine — it's not frozen forever, just coupled. Change both sides in the same co
    confirm real data appears rather than fixtures
 5. Update this document
 
-## 6. Known follow-on
+## 7. Known follow-on
 
 `jinja2` is already a declared dependency in `pyproject.toml` and is entirely unused.
 Replacing the regex splices with real templating would make this contract *enforceable*
