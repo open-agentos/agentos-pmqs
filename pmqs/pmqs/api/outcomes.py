@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session as OrmSession
 
 from pmqs import repository
@@ -15,8 +15,14 @@ from pmqs.outcomes.types import (
     build_policy,
     build_question,
 )
+from pmqs.web.render import render_outcomes
 
 router = APIRouter()
+
+
+@router.get("/outcomes", response_class=HTMLResponse)
+def outcomes_page(db: OrmSession = Depends(get_session)):
+    return HTMLResponse(render_outcomes(db))
 
 
 @router.get("/api/outcomes")

@@ -31,6 +31,16 @@ function pmqsPost(action, fields){
 }
 function pmqsOpenWorkspace(qid){ pmqsPost('/workspace/open', {question_id: qid || ''}); }
 function pmqsSetStatus(qid, status){ pmqsPost('/questions/'+qid+'/status', {status: status}); }
+// Make the top-nav Outcomes item load the real ledger page.
+document.addEventListener('DOMContentLoaded', function(){
+  var nav = document.querySelector('.nav-item[data-nav="outcomes"]');
+  if (nav) nav.addEventListener('click', function(e){
+    e.stopImmediatePropagation();
+    window.location.href = '/outcomes';
+  }, true);
+  var inboxNav = document.querySelector('.nav-item[data-nav="inbox"]');
+  if (inboxNav) inboxNav.addEventListener('click', function(){ window.location.href = '/'; }, true);
+});
 </script>
 """
 
@@ -309,6 +319,86 @@ document.addEventListener('DOMContentLoaded', function(){{
 </script>
 """
     return _inject_before_body_close(src, ws_js)
+
+
+# ---------------------------------------------------------------- Outcomes (Phase 3)
+_OUTCOMES_LIST_RE = re.compile(
+    r'(<div id="outcomes-list">)(.*?)(</div>\s*</div>\s*</div>\s*</div>\s*</div>)', re.DOTALL
+)
+_SUM_RE_TMPL = r'(<div class="summary-num" id="sum-{t}">)[^<]*(</div>)'
+_LEDGER_TAG = {
+    "issue": "Issue", "policy": "Policy", "document": "Document",
+    "meeting": "Meeting", "question": "Question",
+}
+
+
+def _outcome_title(otype: str, payload: dict) -> str:
+    if otype == "policy":
+        return payload.get("text", "")
+    return payload.get("title", "") or payload.get("text", "")
+
+
+def _ledger_item_html(o: Any, payload: dict) -> str:
+    otype = o.type
+    tag = _LEDGER_TAG.get(otype, otype.title())
+    title = html.escape(_outcome_title(otype, payload) or "(untitled)")
+    src = "from war-room" + ("" if o.session_id else " · direct")
+    ref = ""
+    if o.github_ref:
+        ref = f'<div class="ledger-src"><a href="{html.escape(o.github_ref)}">{html.escape(o.github_ref)}</a></div>'
+    else:
+        ref = f'<div class="ledger-src">{html.escape(src)}</div>'
+    return (
+        f'<div class="ledger-item" data-type="{otype}">'
+        f'<span class="ledger-tag {otype}">{tag}</span>'
+        f'<div class="ledger-main">{title}{ref}</div>'
+        f'<span class="ledger-time"></span></div>'
+    )
+
+
+def render_outcomes(db: Any, mockup_path: Path | None = None) -> str:
+    """Splice real outcome rows + summary counts into the mockup's Outcomes view.
+
+    Mirrors the Inbox wiring: replace the static ledger fixtures and the summary-strip
+    numbers with real data. Inbox/Workspace views preserved.
+    """
+    from pmqs import repository
+
+    src = Path(mockup_path or config.MOCKUP_HTML).read_text(encoding="utf-8")
+    outcomes = repository.list_outcomes(db)
+    # newest first by created_at
+    outcomes = sorted(outcomes, key=lambda o: getattr(o, "created_at", ""), reverse=True)
+
+    counts = {"issue": 0, "policy": 0, "document": 0, "meeting": 0, "question": 0}
+    items = []
+    for o in outcomes:
+        counts[o.type] = counts.get(o.type, 0) + 1
+        items.append(_ledger_item_html(o, repository.outcome_payload(o)))
+
+    if items:
+        ledger_html = "\n".join(items)
+    else:
+        ledger_html = '<div class="ledger-item"><div class="ledger-main">No outcomes yet.</div></div>'
+
+    new_src, n = _OUTCOMES_LIST_RE.subn(lambda m: f"{m.group(1)}{ledger_html}{m.group(3)}", src)
+    if n == 0:
+        raise RuntimeError("Could not locate Outcomes list region in mockup HTML")
+
+    # Update the 5 summary-strip counts.
+    for t, c in counts.items():
+        new_src = re.sub(
+            _SUM_RE_TMPL.format(t=t),
+            lambda m, _c=c: f"{m.group(1)}{_c}{m.group(2)}",
+            new_src,
+        )
+    outcomes_js = _LIVE_JS_COMMON + """
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  if (typeof showView === 'function') showView('outcomes');
+});
+</script>
+"""
+    return _inject_before_body_close(new_src, outcomes_js)
 
 
 def render_settings(db: Any) -> str:
