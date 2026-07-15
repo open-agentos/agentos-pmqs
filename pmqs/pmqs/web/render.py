@@ -1,11 +1,8 @@
-"""render.py — template real Questions into the mockup's Inbox .card markup.
+"""render.py — template real data into the mockup's existing markup.
 
-Phase 0 render task: reuse pmqs-mockup.html's existing structure/CSS/JS verbatim,
-replacing ONLY the hardcoded Inbox fixture cards with generated cards from real data.
-Workspace/Outcomes views stay exactly as-is/static (per spec).
-
-Approach: read the mockup once, splice generated card HTML into the Inbox region
-between the quick-add block and the close of .inbox-wrap. Everything else is untouched.
+Reuse pmqs-mockup.html's structure/CSS/JS verbatim, replacing only the hardcoded
+fixture content with real data via anchored regex splices. Phase 0 wired the Inbox;
+Phase 2 wires the Workspace. Everything not spliced is left untouched.
 """
 from __future__ import annotations
 
@@ -16,13 +13,7 @@ from typing import Any
 
 from pmqs import config
 
-# Region: from end of the quick-add block to the close of .inbox-wrap.
-# The mockup has <div class="quick-add">...</div> then fixture cards then </div></div>.
-_QUICK_ADD_RE = re.compile(
-    r'(<div class="quick-add">.*?</div>\s*</div>)',  # quick-add wrapper (input+button, then its close)
-    re.DOTALL,
-)
-# Fallback: everything between quick-add close and the inbox-wrap close.
+# --- Inbox (Phase 0): region from quick-add close to the inbox-wrap close. ---
 _CARDS_REGION_RE = re.compile(
     r'(<div class="quick-add">.*?</div>\s*)(.*?)(\s*</div>\s*</div>\s*<!-- WORKSPACE VIEW -->)',
     re.DOTALL,
@@ -43,7 +34,6 @@ def question_card_html(q: Any) -> str:
         lens_tags = getattr(q, "lens_tags", []) or []
     score = getattr(q, "score", None)
 
-    # Card variant class mirrors mockup: system | asked | saved.
     if status == "saved":
         variant = "saved"
     elif source == "pm":
@@ -62,9 +52,7 @@ def question_card_html(q: Any) -> str:
     ev = getattr(q, "evidence_list", None)
     if ev is None:
         ev = getattr(q, "evidence", []) or []
-    ref = ""
-    if ev:
-        ref = html.escape(str(ev[0].get("ref", "")))
+    ref = html.escape(str(ev[0].get("ref", ""))) if ev else ""
     age_span = f'<span class="card-age">{ref}</span>' if ref else ""
 
     saved_style = ' style="margin-top:22px;"' if variant == "saved" else ""
@@ -103,15 +91,148 @@ def render_inbox(questions: list[Any], mockup_path: Path | None = None) -> str:
 
     new_src, n = _CARDS_REGION_RE.subn(_replace, src)
     if n == 0:
-        # Structure changed; degrade gracefully rather than 500.
         raise RuntimeError("Could not locate Inbox card region in mockup HTML")
     return new_src
 
 
+# ---------------------------------------------------------------- Workspace (Phase 2)
+# Anchored splices into the existing Workspace markup. Each captures (open)(inner)(close);
+# we replace the inner with real data, leaving all CSS/JS/structure intact.
+_WS_TITLE_RE = re.compile(r'(<span class="ws-title">)(.*?)(</span>)', re.DOTALL)
+_CONVO_RE = re.compile(
+    r'(<div class="convo-scroll"[^>]*>)(.*?)(</div>\s*<div class="convo-input">)', re.DOTALL
+)
+_TAB_DOC_RE = re.compile(r'(<div id="tab-doc">)(.*?)(</div>\s*<div id="tab-chart")', re.DOTALL)
+_TAB_EVID_RE = re.compile(
+    r'(<div id="tab-evidence"[^>]*>)(.*?)(</div>\s*<div id="tab-proposed")', re.DOTALL
+)
+_TAB_PROP_RE = re.compile(
+    r'(<div id="tab-proposed"[^>]*>)(.*?)(</div>\s*</div>\s*</div>\s*</div>)', re.DOTALL
+)
+_STATS_RE = re.compile(r'(<span class="session-stats">).*?(</span>)', re.DOTALL)
+
+
+def _msg_html(m: Any) -> str:
+    role = getattr(m, "role", "system")
+    cls = "pm" if role == "pm" else "system"
+    label = "You" if role == "pm" else ("System" if role == "system" else "War-room")
+    bubble = "pm-bubble" if role == "pm" else "sys-bubble"
+    return (
+        f'<div class="msg {cls}"><div class="msg-label">{label}</div>'
+        f'<div class="msg-body {bubble}">{html.escape(getattr(m, "content", ""))}</div></div>'
+    )
+
+
+def _evidence_html(evidence: list[dict]) -> str:
+    if not evidence:
+        return '<div class="evidence-item"><div class="evidence-title">No evidence bound yet.</div></div>'
+    out = []
+    for e in evidence:
+        title = html.escape(f"{e.get('type', 'ref')} {e.get('ref', '')}".strip())
+        url = html.escape(e.get("url", ""))
+        out.append(
+            f'<div class="evidence-item"><div class="evidence-title">{title}</div>'
+            f'<div class="evidence-sub">{url}</div></div>'
+        )
+    return "\n".join(out)
+
+
+def _proposed_html(proposed: list[Any]) -> str:
+    if not proposed:
+        return (
+            '<div class="proposed-item"><div class="proposed-title">'
+            'No proposed questions yet — click "Run lenses" to generate them.</div></div>'
+        )
+    out = []
+    for q in proposed:
+        title = html.escape(getattr(q, "title", ""))
+        out.append(
+            f'<div class="proposed-item"><div class="proposed-title">{title}</div>'
+            f'<div class="proposed-actions">'
+            f'<button class="p-add" onclick="acceptProposed(this)">+ Add to inbox</button>'
+            f"<button class=\"p-dismiss\" onclick=\"this.closest('.proposed-item').remove()\">Dismiss</button>"
+            f"</div></div>"
+        )
+    return "\n".join(out)
+
+
+def _position_doc_html(doc: dict | None) -> str:
+    if not doc:
+        return (
+            '<div class="doc"><h3>Position document</h3>'
+            '<div class="doc-sub">Not generated yet — generate on demand.</div></div>'
+        )
+
+    def sec(label: str, key: str) -> str:
+        val = html.escape(str(doc.get(key, "")))
+        return f'<div class="doc-section"><div class="doc-label">{label}</div><div class="doc-text">{val}</div></div>'
+
+    return (
+        '<div class="doc"><h3>Position document</h3>'
+        '<div class="doc-sub">Voter-Guide format · generated on demand</div>'
+        + sec("Summary", "summary")
+        + sec("What your decision means", "what_your_vote_means")
+        + sec("Background &amp; impact", "background_impact")
+        + '<div class="doc-section doc-grid">'
+        + '<div class="doc-box for"><div class="doc-label">Argument for</div>'
+        + f'<div class="doc-text">{html.escape(str(doc.get("argument_for", "")))}</div>'
+        + '<div class="doc-label">Rebuttal</div>'
+        + f'<div class="doc-text">{html.escape(str(doc.get("rebuttal_for", "")))}</div></div>'
+        + '<div class="doc-box against"><div class="doc-label">Argument against</div>'
+        + f'<div class="doc-text">{html.escape(str(doc.get("argument_against", "")))}</div>'
+        + '<div class="doc-label">Rebuttal</div>'
+        + f'<div class="doc-text">{html.escape(str(doc.get("rebuttal_against", "")))}</div></div>'
+        + "</div></div>"
+    )
+
+
+def _splice3(regex: re.Pattern, replacement: str, s: str, what: str) -> str:
+    """Replace the middle group of a 3-group (open)(inner)(close) regex."""
+    new, n = regex.subn(lambda m: f"{m.group(1)}{replacement}{m.group(3)}", s)
+    if n == 0:
+        raise RuntimeError(f"Could not locate Workspace region: {what}")
+    return new
+
+
+def render_workspace(
+    session: Any,
+    messages: list[Any],
+    evidence: list[dict],
+    proposed: list[Any],
+    position_doc: dict | None,
+    mockup_path: Path | None = None,
+) -> str:
+    """Splice real war-room session data into the mockup's Workspace view.
+
+    Preserves all CSS/JS and the Inbox/Outcomes views. Replaces: ws-title, conversation
+    messages, position-doc tab, evidence tab, proposed-questions tab, and session stats.
+    """
+    src = Path(mockup_path or config.MOCKUP_HTML).read_text(encoding="utf-8")
+
+    title = html.escape(session.topic or "War-room session")
+    convo = "\n".join(_msg_html(m) for m in messages) or (
+        '<div class="msg system"><div class="msg-label">System</div>'
+        '<div class="msg-body sys-bubble">Session open. Ask a question or push back below.</div></div>'
+    )
+    n_exchanges = sum(1 for m in messages if getattr(m, "role", "") == "pm")
+
+    src = _splice3(_WS_TITLE_RE, title, src, "ws-title")
+    src = _splice3(_CONVO_RE, convo, src, "convo-scroll")
+    src = _splice3(_TAB_DOC_RE, _position_doc_html(position_doc), src, "tab-doc")
+    src = _splice3(_TAB_EVID_RE, _evidence_html(evidence), src, "tab-evidence")
+    src = _splice3(_TAB_PROP_RE, _proposed_html(proposed), src, "tab-proposed")
+
+    src, n = _STATS_RE.subn(
+        lambda m: f"{m.group(1)}<span>{n_exchanges}</span> exchanges{m.group(2)}", src
+    )
+    if n == 0:
+        raise RuntimeError("Could not locate Workspace region: session-stats")
+    return src
+
+
 def render_settings(db: Any) -> str:
-    """Render a minimal Settings page (LLM section). Reuses mockup CSS via a <link>-free
-    inline style pull is overkill for the prototype — a plain, self-contained page that
-    matches the dark theme is enough. The API key is NEVER echoed: shown masked.
+    """Render a minimal Settings page (LLM section). Self-contained dark-theme page.
+    The API key is NEVER echoed back: shown masked.
     """
     from pmqs import settings as settings_mod
 
