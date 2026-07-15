@@ -45,3 +45,18 @@ def test_respond_llm_off_uses_fallback(db, monkeypatch):
     sess = repository.open_session(db, topic="t")
     msg = warroom.respond(db, sess.id, "hello")
     assert "LLM unavailable" in msg.content
+
+
+def test_active_policy_reaches_warroom_prompt(db, monkeypatch):
+    # Phase 3: a standing policy must appear in the war-room LLM prompt.
+    repository.create_outcome(db, type="policy", payload={"text": "NEVER ship on Fridays"})
+    captured = {}
+    monkeypatch.setattr(warroom.llm, "is_enabled", lambda: True)
+    def capture(system, user, **kw):
+        captured["user"] = user
+        return "ok"
+    monkeypatch.setattr(warroom.llm, "complete", capture)
+    sess = repository.open_session(db, topic="t")
+    warroom.respond(db, sess.id, "should we ship now?")
+    assert "STANDING POLICIES" in captured["user"]
+    assert "NEVER ship on Fridays" in captured["user"]

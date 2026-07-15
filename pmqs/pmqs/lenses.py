@@ -16,7 +16,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import llm, repository, scoring, settings
+from pmqs import context_feed, llm, repository, scoring, settings
 from pmqs.config import LENS_WEIGHTS
 from pmqs.dedup import dedup
 
@@ -50,13 +50,10 @@ def _topic_and_evidence(db: OrmSession, session: Any) -> tuple[str, list[dict]]:
     return topic, evidence
 
 
-def _triage_lenses(topic: str, evidence: list[dict], cfg: dict) -> list[str]:
+def _triage_lenses(topic: str, evidence: list[dict], cfg: dict, context_block: str = "") -> list[str]:
     try:
-        result = llm.complete_json(
-            _TRIAGE_SYSTEM,
-            f"Topic: {topic}\nEvidence: {evidence}",
-            settings_cfg=cfg, max_tokens=200,
-        )
+        user = context_feed.augment(f"Topic: {topic}\nEvidence: {evidence}", context_block)
+        result = llm.complete_json(_TRIAGE_SYSTEM, user, settings_cfg=cfg, max_tokens=200)
         lenses = [l for l in result.get("lenses", []) if l in _LENSES]
         return lenses or []
     except Exception as exc:
@@ -64,13 +61,12 @@ def _triage_lenses(topic: str, evidence: list[dict], cfg: dict) -> list[str]:
         return []
 
 
-def _gen_for_lens(lens: str, topic: str, evidence: list[dict], cfg: dict) -> dict | None:
+def _gen_for_lens(lens: str, topic: str, evidence: list[dict], cfg: dict, context_block: str = "") -> dict | None:
     try:
-        result = llm.complete_json(
-            _GEN_SYSTEM,
-            f"Lens: {lens}\nTopic: {topic}\nEvidence: {evidence}",
-            settings_cfg=cfg, max_tokens=350,
+        user = context_feed.augment(
+            f"Lens: {lens}\nTopic: {topic}\nEvidence: {evidence}", context_block
         )
+        result = llm.complete_json(_GEN_SYSTEM, user, settings_cfg=cfg, max_tokens=350)
         if result.get("title"):
             return {
                 "title": str(result["title"])[:200],
@@ -96,8 +92,13 @@ def run_session_lenses(db: OrmSession, session: Any) -> list:
     if not topic:
         return []
 
-    relevant = _triage_lenses(topic, evidence, cfg)
-    candidates = [c for c in (_gen_for_lens(l, topic, evidence, cfg) for l in relevant) if c]
+    # Phase 3: build the unified context-feed once; feed it into triage + generation.
+    context_block = context_feed.build_context_block(db)
+
+    relevant = _triage_lenses(topic, evidence, cfg, context_block)
+    candidates = [
+        c for c in (_gen_for_lens(l, topic, evidence, cfg, context_block) for l in relevant) if c
+    ]
     if not candidates:
         return []
 

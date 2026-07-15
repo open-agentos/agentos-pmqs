@@ -12,7 +12,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import llm, repository, settings
+from pmqs import context_feed, llm, repository, settings
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +59,8 @@ def respond(db: OrmSession, session_id: str, pm_message: str) -> Any:
     history = repository.list_messages(db, session_id)
     convo = "\n".join(f"{m.role.upper()}: {m.content}" for m in history)
     user = f"{_context_preamble(db, session)}\n\nConversation so far:\n{convo}\n\nRespond as the war-room partner."
+    # Phase 3: prepend the unified context-feed (standing policies, documents, agendas).
+    user = context_feed.augment(user, context_feed.build_context_block(db))
 
     reply = _FALLBACK
     if llm.is_enabled():

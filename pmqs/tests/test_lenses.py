@@ -62,3 +62,20 @@ def test_run_lenses_survives_triage_failure(db, monkeypatch):
     monkeypatch.setattr(lenses.llm, "complete_json", boom)
     sess = _session_with_q(db)
     assert lenses.run_session_lenses(db, sess) == []  # no crash, no candidates
+
+
+def test_active_policy_reaches_lens_prompts(db, monkeypatch):
+    # Phase 3: standing policy must appear in the lens triage + generation prompts.
+    repository.create_outcome(db, type="policy", payload={"text": "PREFER security over speed"})
+    prompts = []
+    monkeypatch.setattr(lenses.llm, "is_enabled", lambda: True)
+    def capture(system, user, **kw):
+        prompts.append(user)
+        if "lenses" in system.lower() or "triage" in system.lower():
+            return {"lenses": ["risk_exposure"]}
+        return {"title": "t", "description": "d"}
+    monkeypatch.setattr(lenses.llm, "complete_json", capture)
+    sess = _session_with_q(db)
+    lenses.run_session_lenses(db, sess)
+    assert any("PREFER security over speed" in p for p in prompts)
+    assert any("STANDING POLICIES" in p for p in prompts)
