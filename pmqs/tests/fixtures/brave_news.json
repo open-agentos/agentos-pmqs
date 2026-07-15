@@ -1,0 +1,30 @@
+{
+  "type": "news",
+  "query": {"original": "AI agents"},
+  "results": [
+    {
+      "type": "news_result",
+      "title": "This CEO Spent the Equivalent of $4 Million on an AI Agent",
+      "url": "https://vanityfair.com/story/olive-ai-agent",
+      "description": "Who can harness (and pay for) that kind of computing power?",
+      "age": "15 hours ago",
+      "page_age": "2026-07-14T23:01:39",
+      "meta_url": {"hostname": "vanityfair.com"}
+    },
+    {
+      "type": "news_result",
+      "title": "Open-source agent orchestration frameworks compared",
+      "url": "https://example.dev/agent-frameworks",
+      "description": "A survey of GitHub-primitive agent systems and their trade-offs.",
+      "age": "2 days ago",
+      "page_age": "2026-07-13T08:00:00",
+      "meta_url": {"hostname": "example.dev"}
+    },
+    {
+      "type": "news_result",
+      "title": "Malformed entry with no url should be skipped",
+      "description": "no url here",
+      "meta_url": {"hostname": "broken.example"}
+    }
+  ]
+}
