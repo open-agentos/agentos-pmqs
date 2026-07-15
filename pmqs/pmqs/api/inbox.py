@@ -36,12 +36,18 @@ def index(lens: str | None = Query(default=None), db: OrmSession = Depends(get_s
 
 
 def _live_shims(state):
-    """Phase 0 read-through: map raw Issues into flat Question-shaped shims."""
+    """Phase 0 read-through: map raw Issues into flat Question-shaped shims.
+
+    Shims carry a stable pseudo-id 'issue:<number>' so a card click can open a
+    war-room: /workspace/open resolves that pseudo-id by persisting the raw issue as
+    a Question on demand (cheap, no LLM).
+    """
     shims = []
     for issue in state.get("issues", []):
         ref = f"#{issue.get('number')}"
         shims.append(
             _Shim(
+                id=f"issue:{issue.get('number')}",
                 title=issue.get("title", ""),
                 description=issue.get("body") or "",
                 lens_tags=[],

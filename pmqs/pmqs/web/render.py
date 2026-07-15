@@ -13,6 +13,35 @@ from typing import Any
 
 from pmqs import config
 
+# --- Live wiring JS: injected into rendered pages so the mockup's buttons call the
+# real backend endpoints instead of the demo's client-side stubs. Uses classic form
+# POSTs (303 redirects) to match the server routes; no fetch/JSON needed. ---
+_LIVE_JS_COMMON = """
+<script>
+// PMQs live wiring (injected by render.py) — overrides mockup demo handlers.
+function pmqsPost(action, fields){
+  const f = document.createElement('form');
+  f.method = 'POST'; f.action = action;
+  for (const k in (fields||{})){
+    const i = document.createElement('input');
+    i.type = 'hidden'; i.name = k; i.value = fields[k];
+    f.appendChild(i);
+  }
+  document.body.appendChild(f); f.submit();
+}
+function pmqsOpenWorkspace(qid){ pmqsPost('/workspace/open', {question_id: qid || ''}); }
+function pmqsSetStatus(qid, status){ pmqsPost('/questions/'+qid+'/status', {status: status}); }
+</script>
+"""
+
+
+def _inject_before_body_close(src: str, snippet: str) -> str:
+    """Insert snippet just before </body>. Falls back to appending."""
+    idx = src.rfind("</body>")
+    if idx == -1:
+        return src + snippet
+    return src[:idx] + snippet + src[idx:]
+
 # --- Inbox (Phase 0): region from quick-add close to the inbox-wrap close. ---
 _CARDS_REGION_RE = re.compile(
     r'(<div class="quick-add">.*?</div>\s*)(.*?)(\s*</div>\s*</div>\s*<!-- WORKSPACE VIEW -->)',
@@ -55,8 +84,10 @@ def question_card_html(q: Any) -> str:
     ref = html.escape(str(ev[0].get("ref", ""))) if ev else ""
     age_span = f'<span class="card-age">{ref}</span>' if ref else ""
 
+    qid = html.escape(str(getattr(q, "id", "") or ""))
     saved_style = ' style="margin-top:22px;"' if variant == "saved" else ""
-    return f"""        <div class="card {variant}"{saved_style}>
+    # data-qid + click opens the real war-room for this question (see _LIVE_JS).
+    return f"""        <div class="card {variant}"{saved_style} data-qid="{qid}" onclick="pmqsOpenWorkspace('{qid}')">
           <div class="card-main">
             <div class="card-title">{title}</div>
             <div class="card-meta">
@@ -64,10 +95,10 @@ def question_card_html(q: Any) -> str:
               {age_span}
             </div>
           </div>
-          <div class="card-actions">
-            <div class="icon-btn primary" title="War-room">⚔</div>
-            <div class="icon-btn" title="Save for later">⏱</div>
-            <div class="icon-btn" title="Dismiss">✕</div>
+          <div class="card-actions" onclick="event.stopPropagation()">
+            <div class="icon-btn primary" title="War-room" onclick="pmqsOpenWorkspace('{qid}')">⚔</div>
+            <div class="icon-btn" title="Save for later" onclick="pmqsSetStatus('{qid}','saved')">⏱</div>
+            <div class="icon-btn" title="Dismiss" onclick="pmqsSetStatus('{qid}','dismissed')">✕</div>
           </div>
         </div>"""
 
@@ -92,7 +123,20 @@ def render_inbox(questions: list[Any], mockup_path: Path | None = None) -> str:
     new_src, n = _CARDS_REGION_RE.subn(_replace, src)
     if n == 0:
         raise RuntimeError("Could not locate Inbox card region in mockup HTML")
-    return new_src
+
+    # Wire quick-add + card clicks to real endpoints (override mockup demo JS).
+    inbox_js = _LIVE_JS_COMMON + """
+<script>
+// Override quick-add to create a real PM question server-side.
+function addQuestion(){
+  var input = document.getElementById('quick-add-input');
+  var val = (input && input.value || '').trim();
+  if(!val) return;
+  pmqsPost('/quick-add', {title: val});
+}
+</script>
+"""
+    return _inject_before_body_close(new_src, inbox_js)
 
 
 # ---------------------------------------------------------------- Workspace (Phase 2)
@@ -137,19 +181,25 @@ def _evidence_html(evidence: list[dict]) -> str:
     return "\n".join(out)
 
 
-def _proposed_html(proposed: list[Any]) -> str:
+def _proposed_html(proposed: list[Any], session_id: str = "") -> str:
+    run_btn = (
+        f'<button class="p-add" style="margin-bottom:14px" '
+        f'onclick="pmqsRunLenses()">⟳ Run lenses</button>'
+    )
     if not proposed:
         return (
-            '<div class="proposed-item"><div class="proposed-title">'
+            run_btn
+            + '<div class="proposed-item"><div class="proposed-title">'
             'No proposed questions yet — click "Run lenses" to generate them.</div></div>'
         )
-    out = []
+    out = [run_btn]
     for q in proposed:
         title = html.escape(getattr(q, "title", ""))
+        qid = html.escape(str(getattr(q, "id", "") or ""))
         out.append(
             f'<div class="proposed-item"><div class="proposed-title">{title}</div>'
             f'<div class="proposed-actions">'
-            f'<button class="p-add" onclick="acceptProposed(this)">+ Add to inbox</button>'
+            f"<button class=\"p-add\" onclick=\"pmqsAddProposed('{qid}', this)\">+ Add to inbox</button>"
             f"<button class=\"p-dismiss\" onclick=\"this.closest('.proposed-item').remove()\">Dismiss</button>"
             f"</div></div>"
         )
@@ -160,7 +210,9 @@ def _position_doc_html(doc: dict | None) -> str:
     if not doc:
         return (
             '<div class="doc"><h3>Position document</h3>'
-            '<div class="doc-sub">Not generated yet — generate on demand.</div></div>'
+            '<div class="doc-sub">Not generated yet — generate on demand (one-time).</div>'
+            '<button class="p-add" style="margin-top:12px" onclick="pmqsGenDoc()">✎ Generate position document</button>'
+            '</div>'
         )
 
     def sec(label: str, key: str) -> str:
@@ -220,14 +272,43 @@ def render_workspace(
     src = _splice3(_CONVO_RE, convo, src, "convo-scroll")
     src = _splice3(_TAB_DOC_RE, _position_doc_html(position_doc), src, "tab-doc")
     src = _splice3(_TAB_EVID_RE, _evidence_html(evidence), src, "tab-evidence")
-    src = _splice3(_TAB_PROP_RE, _proposed_html(proposed), src, "tab-proposed")
+    src = _splice3(_TAB_PROP_RE, _proposed_html(proposed, session.id), src, "tab-proposed")
 
     src, n = _STATS_RE.subn(
         lambda m: f"{m.group(1)}<span>{n_exchanges}</span> exchanges{m.group(2)}", src
     )
     if n == 0:
         raise RuntimeError("Could not locate Workspace region: session-stats")
-    return src
+
+    # Inject session-aware live wiring: override the mockup's demo handlers so the
+    # war-room buttons hit real endpoints for THIS session.
+    sid = session.id
+    ws_js = _LIVE_JS_COMMON + f"""
+<script>
+var PMQS_SID = {sid!r};
+// Send a chat message to the real war-room endpoint (LLM probe reply).
+function sendMsg(){{
+  var input = document.getElementById('chat-input');
+  var val = (input && input.value || '').trim();
+  if(!val) return;
+  pmqsPost('/workspace/'+PMQS_SID+'/message', {{content: val}});
+}}
+function pmqsRunLenses(){{ pmqsPost('/workspace/'+PMQS_SID+'/run-lenses', {{}}); }}
+function pmqsGenDoc(){{ pmqsPost('/workspace/'+PMQS_SID+'/position-doc', {{}}); }}
+function pmqsAddProposed(qid, btn){{ pmqsPost('/workspace/'+PMQS_SID+'/proposed/'+qid+'/add', {{}}); }}
+// Outcome bar → real typed-outcome endpoint.
+function addOutcome(type, label){{
+  pmqsPost('/workspace/'+PMQS_SID+'/outcome', {{type: type, title: label || ''}});
+}}
+// Neutralize the mockup's client-only acceptProposed (superseded by pmqsAddProposed).
+function acceptProposed(btn){{ /* handled by pmqsAddProposed */ }}
+// Land on the Workspace view when arriving at this page.
+document.addEventListener('DOMContentLoaded', function(){{
+  if (typeof showView === 'function') showView('workspace');
+}});
+</script>
+"""
+    return _inject_before_body_close(src, ws_js)
 
 
 def render_settings(db: Any) -> str:

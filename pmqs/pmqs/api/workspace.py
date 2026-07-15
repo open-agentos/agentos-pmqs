@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session as OrmSession
 
 from pmqs import lenses, position_doc, repository, warroom
+from pmqs.agentos_client import AgentOSClient
 from pmqs.db import get_session
 from pmqs.web.render import render_workspace
 
@@ -36,7 +37,30 @@ def _proposed_for(db: OrmSession, session) -> list:
 def open_workspace(question_id: str = Form(default=""), db: OrmSession = Depends(get_session)):
     qid = question_id or None
     topic = None
-    if qid:
+    # Resolve a Phase-0 live-read pseudo-id 'issue:<number>' by persisting the raw
+    # issue as a Question on demand (cheap, no LLM) so the war-room has a real anchor.
+    if qid and qid.startswith("issue:"):
+        number = qid.split(":", 1)[1]
+        try:
+            state = AgentOSClient().get_state()
+            issue = next((i for i in state.get("issues", []) if str(i.get("number")) == number), None)
+        except Exception:
+            issue = None
+        if issue is not None:
+            ref = f"#{issue.get('number')}"
+            q = repository.create_question(
+                db,
+                title=issue.get("title", ""),
+                source="system",
+                description=issue.get("body") or "",
+                evidence=[{"type": "issue", "ref": ref, "url": issue.get("url", "")}],
+                status="proposed",
+            )
+            qid = q.id
+            topic = q.title
+        else:
+            qid = None
+    elif qid:
         q = repository.get_question(db, qid)
         topic = q.title if q else None
     sess = repository.open_session(db, topic=topic, question_id=qid)
@@ -93,3 +117,11 @@ def workspace_position_doc(session_id: str, db: OrmSession = Depends(get_session
 def workspace_branch(session_id: str, topic: str = Form(...), db: OrmSession = Depends(get_session)):
     child = repository.open_session(db, topic=topic, parent_id=session_id)
     return RedirectResponse(url=f"/workspace/{child.id}", status_code=303)
+
+
+@router.post("/workspace/{session_id}/proposed/{qid}/add")
+def workspace_add_proposed(session_id: str, qid: str, db: OrmSession = Depends(get_session)):
+    # "Add to inbox": acknowledge a proposed question by marking it saved so it pins in
+    # the ranked Inbox list. It's already scored/visible; this records the PM's intent.
+    repository.update_question_status(db, qid, "saved")
+    return RedirectResponse(url=f"/workspace/{session_id}", status_code=303)
