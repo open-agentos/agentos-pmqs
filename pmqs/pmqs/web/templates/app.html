@@ -102,8 +102,13 @@ svg.pulse{width:100%;height:28px;display:block;}
 .pulse-line{stroke-dasharray:6 4;}
 
 .metrics{margin-top:10px;display:flex;flex-direction:column;gap:5px;}
-.metric-row{display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);}
-.metric-row span:last-child{color:var(--text-secondary);}
+/* §6 .pulse-metric-row / .pulse-metric-value. §6 names selectors this
+   template does not have; class names here are load-bearing (render.py
+   anchors on them), so the properties are applied to the components that
+   actually play those roles rather than the components renamed to match. */
+.metric-row{display:flex;justify-content:space-between;
+  font-family:var(--font-mono);font-size:0.8rem;color:var(--text-secondary);}
+.metric-row span:last-child{color:var(--text-primary);font-weight:bold;}
 
 .org{margin-top:16px;padding-top:14px;border-top:1px solid var(--border-default);font-size:11px;color:var(--text-muted);}
 .org b{color:var(--text-secondary);font-weight:500;}
@@ -238,8 +243,12 @@ svg.pulse{width:100%;height:28px;display:block;}
 
 .artifact-pane{width:48%;display:flex;flex-direction:column;background:var(--bg-main);}
 .artifact-tabs{display:flex;border-bottom:1px solid var(--border-default);flex-shrink:0;}
-.a-tab{padding:11px 18px;font-size:12.5px;color:var(--text-muted);cursor:pointer;border-right:1px solid var(--border-default);}
-.a-tab.active{color:var(--accent-gold);background:var(--bg-surface);}
+/* §6 .tab-item.active. The transparent bottom border reserves the space so
+   activating a tab does not shift the strip. */
+.a-tab{padding:11px 18px;font-size:12.5px;color:var(--text-muted);cursor:pointer;
+  border-right:1px solid var(--border-default);border-bottom:2px solid transparent;}
+.a-tab.active{color:var(--accent-gold);background:var(--bg-surface);
+  border-bottom-color:var(--accent-gold);font-weight:600;}
 .a-tab:hover:not(.active){color:var(--text-secondary);}
 .artifact-body{flex:1;overflow-y:auto;}
 
