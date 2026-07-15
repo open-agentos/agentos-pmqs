@@ -430,40 +430,63 @@ word-scanning is too slow.)*
 ## 6. Component Patterns
 
 ⚠️ These specify **properties, not selectors.** Class names in `app.html` are
-load-bearing — see `pmqs/pmqs/web/TEMPLATE-CONTRACT.md`. Do not rename an existing class
-to match a name below without updating `render.py` in the same commit.
+load-bearing — `render.py` anchors on them and no test catches breakage. See
+`pmqs/pmqs/web/TEMPLATE-CONTRACT.md`. Do not rename an existing class to match a name
+below; apply the properties to the component that plays the role.
+
+### What Draft 1 named vs. what exists
+
+| Draft 1 | Real component | Status |
+|---|---|---|
+| `.tab-item.active` | `.a-tab.active` (artifact pane tabs) | ✅ applied |
+| `.pulse-metric-row` | `.metric-row` (left rail) | ✅ applied |
+| `.pulse-metric-value` | `.metric-row span:last-child` | ✅ applied |
+| `.war-room-container` | — **nothing** | ⚠️ see below |
 
 ```css
-.war-room-container {
-  background-color: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  padding: 24px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
-}
+/* the artifact pane's tab strip */
+.a-tab              { border-bottom: 2px solid transparent; }  /* reserves the space */
+.a-tab.active       { color: var(--accent-gold); border-bottom-color: var(--accent-gold);
+                      font-weight: 600; background: var(--bg-surface); }
 
-.tab-item.active {
-  color: var(--accent-gold);
-  border-bottom-color: var(--accent-gold);
-  font-weight: 600;
-}
-
-.pulse-metric-row {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  color: var(--text-secondary);
-}
-
-.pulse-metric-value {
-  color: var(--text-primary);
-  font-weight: bold;
-}
+/* the left rail's ambient telemetry */
+.metric-row                 { font-family: var(--font-mono); font-size: 0.8rem;
+                              color: var(--text-secondary); }
+.metric-row span:last-child { color: var(--text-primary); font-weight: bold; }
 ```
 
-Left-rail health metrics are **static** — an animated pulse was judged distracting. The
-left-column metrics concept itself stays.
+### `.war-room-container` describes a component that doesn't exist
 
----
+Draft 1 specifies it as a card: `background-color: var(--bg-surface)`, `border-radius: 8px`,
+`padding: 24px`, `box-shadow: 0 4px 24px rgba(0,0,0,0.5)`.
+
+**The war room is not a card.** It's a full-bleed two-pane layout — `.ws-wrap` is
+`display:flex; height:100%`, splitting into a conversation pane and an artifact pane that
+fill the viewport. There is no padded, rounded, shadowed container anywhere in it, and
+adding one would box the whole workspace: less room for the thing the workspace is for,
+and a drop shadow on a full-height pane that has nothing to cast onto.
+
+Nothing else fits either. The card-like surfaces in the war room are `.evidence-item` and
+`.proposed-item` — list items, where 24px padding and a heavy shadow would be wrong — and
+`.doc`, which is the **paper** surface and takes `--paper`, not `--bg-surface`.
+
+So this rule is unapplied, deliberately. It's the same defect as §4's header hierarchy one
+section over: **Draft 1's component patterns were written against an imagined inventory
+rather than the built product.** If a war-room card is genuinely wanted, that's a design
+change with a real cost, not a token migration.
+
+### Left-rail metrics are static
+
+An animated pulse was judged distracting; the left-column metrics concept stays. Verified:
+there is no `@keyframes` and no `animation:` property anywhere in the template. The
+sparkline is a static path.
+
+### Known: the active tab now carries four emphasis signals
+
+Applying §6 faithfully gives `.a-tab.active` gold text **and** bold weight **and** a gold
+underline **and** a lighter background. That's heavier than it needs to be — the
+background is the most likely one to drop, since the underline is what §6 actually asks
+for. Left as specified rather than quietly overruled; a call for the design agent.
 
 ## 7. Handoff Notes for Design Agent
 
