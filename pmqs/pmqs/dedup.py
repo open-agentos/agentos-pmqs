@@ -1,20 +1,30 @@
-"""dedup.py — LLM dedup/collision pass (Phase 1 task 3). STUBBED.
+"""dedup.py — LLM dedup/collision pass (Phase 1 task 3).
 
 LLM judgment call: given the day's batch of candidate Questions, identify pairs/groups
 about the same underlying thing and merge them (merge reasoning -> surviving
 Question's description).
 
-Phase 1 status: STUBBED. No LLM call. A deterministic heuristic stands in so the
-pipeline and its acceptance test run: candidates whose titles are highly similar (token
-Jaccard over a threshold) or that share an evidence ref are treated as duplicates. A
-real LiteLLM judgment call slots into `_llm_are_duplicates` later.
+The LLM judgment goes through pmqs.llm. If the LLM is unavailable or errors, a
+deterministic heuristic stands in (token Jaccard over a threshold, or a shared
+evidence ref) so the pipeline never breaks. Set PMQS_LLM_MODE=off to force heuristic.
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
+from pmqs import llm
+
+log = logging.getLogger(__name__)
+
 _SIM_THRESHOLD = 0.6
+
+_SYSTEM = (
+    "You decide whether two product-management questions are really about the SAME "
+    "underlying issue and should be merged. Consider the topic and cited evidence, not "
+    'just wording. Respond as JSON: {"duplicate": true|false}. No markdown.'
+)
 
 
 def _tokens(text: str) -> set[str]:
@@ -33,8 +43,20 @@ def _evidence_refs(cand: dict[str, Any]) -> set[str]:
 
 
 def _llm_are_duplicates(a: dict[str, Any], b: dict[str, Any]) -> bool | None:
-    """Real LLM judgment goes here. Returns None while stubbed (fall back to heuristic)."""
-    return None  # STUB
+    """LLM judgment via pmqs.llm. Returns None on unavailable/error (fall back to heuristic)."""
+    if not llm.is_enabled():
+        return None
+    user = (
+        f"Question A:\n  title: {a.get('title')}\n  evidence: {sorted(_evidence_refs(a))}\n"
+        f"Question B:\n  title: {b.get('title')}\n  evidence: {sorted(_evidence_refs(b))}"
+    )
+    try:
+        result = llm.complete_json(_SYSTEM, user)
+        if isinstance(result, dict) and "duplicate" in result:
+            return bool(result["duplicate"])
+    except Exception as exc:
+        log.warning("dedup LLM call failed, falling back to heuristic: %s", exc)
+    return None
 
 
 def _are_duplicates(a: dict[str, Any], b: dict[str, Any]) -> bool:

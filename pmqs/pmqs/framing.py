@@ -1,23 +1,50 @@
-"""framing.py — LLM framing pass (Phase 1 task 2). STUBBED.
+"""framing.py — LLM framing pass (Phase 1 task 2).
 
 Runs AFTER a structural trigger fires, as a separate step. Takes a trigger's raw hit
 and produces a human-readable title/description. Decoupled from the trigger so the
 trigger stays deterministic/swappable.
 
-Phase 1 status: STUBBED. The LLM call is not wired (per build decision). The stub
-produces a deterministic, non-empty title/description from the hit so the pipeline
-runs end to end. A real LiteLLM call slots into `_call_llm` later. Critically: an LLM
-failure must NOT crash the trigger pipeline — the fallback below guarantees a
-Question still gets a usable title/description.
+The LLM call goes through pmqs.llm (LiteLLM; inherits Hermes credentials by default).
+Critically: an LLM failure must NOT crash the trigger pipeline — the fallback below
+guarantees a Question still gets a usable title/description. Set PMQS_LLM_MODE=off to
+force the deterministic fallback (e.g. in tests/offline).
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
+
+from pmqs import llm
+
+log = logging.getLogger(__name__)
+
+_SYSTEM = (
+    "You frame product-management questions for a PM's decision inbox. Given a raw "
+    "structural-trigger hit against a software repo, write a concise, human-readable "
+    "question TITLE (<=120 chars, phrased as a decision the PM must make) and a short "
+    "DESCRIPTION (2-4 sentences: what was detected, why it matters, what's at stake). "
+    'Respond as JSON: {"title": "...", "description": "..."}. No markdown.'
+)
 
 
 def _call_llm(hit: dict[str, Any]) -> dict[str, str] | None:
-    """Real LLM framing goes here (LiteLLM). Returns None while stubbed."""
-    return None  # STUB: not wired yet.
+    """Real LLM framing via pmqs.llm. Returns None on any failure (caller falls back)."""
+    if not llm.is_enabled():
+        return None
+    user = (
+        f"Trigger: {hit.get('trigger')}\n"
+        f"Lens: {', '.join(hit.get('lens_tags', []))}\n"
+        f"Reference: {hit.get('ref')}\n"
+        f"Reason: {hit.get('reason')}\n"
+        f"Draft title (optional): {hit.get('title', '')}"
+    )
+    try:
+        result = llm.complete_json(_SYSTEM, user)
+        if isinstance(result, dict) and result.get("title") and result.get("description"):
+            return {"title": str(result["title"])[:200], "description": str(result["description"])}
+    except Exception as exc:
+        log.warning("framing LLM call failed, falling back: %s", exc)
+    return None
 
 
 def _fallback(hit: dict[str, Any]) -> dict[str, str]:
