@@ -14,13 +14,24 @@ AGENTOS_REPO_PATH = Path(os.environ.get("PMQS_AGENTOS_REPO_PATH", str(_default_r
 # SQLite DB location (Phase 0.5+).
 DB_PATH = Path(os.environ.get("PMQS_DB_PATH", str(Path(__file__).resolve().parent / "pmqs.db")))
 
-# Mockup HTML reused for rendering (Phase 0).
-MOCKUP_HTML = Path(
+# The app's HTML template. render.py splices real data into this file at request
+# time — it is production code, not a mockup. See web/TEMPLATE-CONTRACT.md before
+# editing its markup: class names and comment sentinels are load-bearing.
+_default_app_template = Path(__file__).resolve().parent / "web" / "templates" / "app.html"
+
+APP_TEMPLATE = Path(
     os.environ.get(
-        "PMQS_MOCKUP_HTML",
-        str(_default_repo_path / "docs" / "pmqs-mockup.html"),
+        "PMQS_APP_TEMPLATE",
+        # Deprecated alias — PMQS_MOCKUP_HTML dates from when this file lived in
+        # docs/ as a mockup. Honoured so existing local envs keep working; remove
+        # once no deployment sets it.
+        os.environ.get("PMQS_MOCKUP_HTML", str(_default_app_template)),
     )
 )
+
+# Deprecated alias for APP_TEMPLATE. Kept so any out-of-tree caller importing
+# config.MOCKUP_HTML keeps working; prefer APP_TEMPLATE.
+MOCKUP_HTML = APP_TEMPLATE
 
 # --- Phase 1 scoring: per-lens weight defaults (config, not UI). ---
 # 8-lens taxonomy from product-design.md. Weight is one dimension of the formula.

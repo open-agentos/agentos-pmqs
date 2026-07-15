@@ -1,8 +1,14 @@
-"""render.py — template real data into the mockup's existing markup.
+"""render.py — splice real data into the app template's existing markup.
 
-Reuse pmqs-mockup.html's structure/CSS/JS verbatim, replacing only the hardcoded
-fixture content with real data via anchored regex splices. Phase 0 wired the Inbox;
-Phase 2 wires the Workspace. Everything not spliced is left untouched.
+Reuses web/templates/app.html's structure/CSS/JS verbatim, replacing only the
+hardcoded fixture content with real data via anchored regex splices. Phase 0 wired
+the Inbox; Phase 2 wires the Workspace. Everything not spliced is left untouched.
+
+IMPORTANT: the splices below anchor on the template's class names, DOM nesting and
+HTML comment sentinels. Those names are a load-bearing API, not cosmetic, and no
+test asserts on them — breakage surfaces at runtime, not in CI. Colours, fonts and
+spacing in the template are free to change; structure and names are not.
+See web/TEMPLATE-CONTRACT.md.
 """
 from __future__ import annotations
 
@@ -13,12 +19,12 @@ from typing import Any
 
 from pmqs import config
 
-# --- Live wiring JS: injected into rendered pages so the mockup's buttons call the
+# --- Live wiring JS: injected into rendered pages so the template's buttons call the
 # real backend endpoints instead of the demo's client-side stubs. Uses classic form
 # POSTs (303 redirects) to match the server routes; no fetch/JSON needed. ---
 _LIVE_JS_COMMON = """
 <script>
-// PMQs live wiring (injected by render.py) — overrides mockup demo handlers.
+// PMQs live wiring (injected by render.py) — overrides the template's demo handlers.
 function pmqsPost(action, fields){
   const f = document.createElement('form');
   f.method = 'POST'; f.action = action;
@@ -40,7 +46,7 @@ document.addEventListener('DOMContentLoaded', function(){
   }, true);
   var inboxNav = document.querySelector('.nav-item[data-nav="inbox"]');
   if (inboxNav) inboxNav.addEventListener('click', function(){ window.location.href = '/'; }, true);
-  // Phase 4: add a Settings link to the left rail (mockup has no way to reach /settings).
+  // Phase 4: add a Settings link to the left rail (template has no way to reach /settings).
   var rail = document.querySelector('.rail-spacer') || document.querySelector('.nav-item');
   if (rail && !document.getElementById('pmqs-settings-nav')) {
     var s = document.createElement('div');
@@ -91,7 +97,7 @@ def _pill(text: str, cls: str = "") -> str:
 
 
 def question_card_html(q: Any) -> str:
-    """Render one Question into the mockup's .card markup."""
+    """Render one Question into the template's .card markup."""
     source = getattr(q, "source", "system")
     status = getattr(q, "status", "proposed")
     lens_tags = getattr(q, "lens_tags_list", None)
@@ -146,14 +152,14 @@ def question_card_html(q: Any) -> str:
         </div>"""
 
 
-def render_inbox(questions: list[Any], mockup_path: Path | None = None,
+def render_inbox(questions: list[Any], template_path: Path | None = None,
                  flash: str | None = None, refreshed: str | None = None) -> str:
-    """Return the full mockup HTML with Inbox fixture cards replaced by real ones.
+    """Return the full app HTML with Inbox fixture cards replaced by real ones.
 
     `flash` (optional): 'none' or an integer N — news-ingest banner.
     `refreshed` (optional): integer N — repo-refresh banner ("Pulled N from the repo").
     """
-    path = mockup_path or config.MOCKUP_HTML
+    path = template_path or config.APP_TEMPLATE
     src = Path(path).read_text(encoding="utf-8")
 
     banner = _flash_banner(flash) + _refresh_banner(refreshed)
@@ -177,7 +183,7 @@ def render_inbox(questions: list[Any], mockup_path: Path | None = None,
 
     new_src, n = _CARDS_REGION_RE.subn(_replace, src)
     if n == 0:
-        raise RuntimeError("Could not locate Inbox card region in mockup HTML")
+        raise RuntimeError("Could not locate Inbox card region in app template")
 
     # Always-visible Refresh control in the Inbox header (testing convenience): runs the
     # structural-trigger pipeline against the repo. Replaces the plain "Inbox" header.
@@ -193,7 +199,7 @@ def render_inbox(questions: list[Any], mockup_path: Path | None = None,
     new_src, hn = re.subn(r'<div class="inbox-header">Inbox</div>', header_html, new_src)
     # (hn==0 tolerated: header markup changed; the empty-state button still works.)
 
-    # Wire quick-add + card clicks to real endpoints (override mockup demo JS).
+    # Wire quick-add + card clicks to real endpoints (override template demo JS).
     # Also force the Inbox view active on load so no war-room/workspace header bleeds in.
     inbox_js = _LIVE_JS_COMMON + """
 <script>
@@ -385,14 +391,14 @@ def render_workspace(
     evidence: list[dict],
     proposed: list[Any],
     position_doc: dict | None,
-    mockup_path: Path | None = None,
+    template_path: Path | None = None,
 ) -> str:
-    """Splice real war-room session data into the mockup's Workspace view.
+    """Splice real war-room session data into the template's Workspace view.
 
     Preserves all CSS/JS and the Inbox/Outcomes views. Replaces: ws-title, conversation
     messages, position-doc tab, evidence tab, proposed-questions tab, and session stats.
     """
-    src = Path(mockup_path or config.MOCKUP_HTML).read_text(encoding="utf-8")
+    src = Path(template_path or config.APP_TEMPLATE).read_text(encoding="utf-8")
 
     title = html.escape(session.topic or "War-room session")
     convo = "\n".join(_msg_html(m) for m in messages) or (
@@ -413,7 +419,7 @@ def render_workspace(
     if n == 0:
         raise RuntimeError("Could not locate Workspace region: session-stats")
 
-    # Inject session-aware live wiring: override the mockup's demo handlers so the
+    # Inject session-aware live wiring: override the template's demo handlers so the
     # war-room buttons hit real endpoints for THIS session.
     sid = session.id
     ws_js = _LIVE_JS_COMMON + f"""
@@ -433,7 +439,7 @@ function pmqsAddProposed(qid, btn){{ pmqsPost('/workspace/'+PMQS_SID+'/proposed/
 function addOutcome(type, label){{
   pmqsPost('/workspace/'+PMQS_SID+'/outcome', {{type: type, title: label || ''}});
 }}
-// Neutralize the mockup's client-only acceptProposed (superseded by pmqsAddProposed).
+// Neutralize the template's client-only acceptProposed (superseded by pmqsAddProposed).
 function acceptProposed(btn){{ /* handled by pmqsAddProposed */ }}
 // Land on the Workspace view when arriving at this page.
 document.addEventListener('DOMContentLoaded', function(){{
@@ -479,15 +485,15 @@ def _ledger_item_html(o: Any, payload: dict) -> str:
     )
 
 
-def render_outcomes(db: Any, mockup_path: Path | None = None) -> str:
-    """Splice real outcome rows + summary counts into the mockup's Outcomes view.
+def render_outcomes(db: Any, template_path: Path | None = None) -> str:
+    """Splice real outcome rows + summary counts into the template's Outcomes view.
 
     Mirrors the Inbox wiring: replace the static ledger fixtures and the summary-strip
     numbers with real data. Inbox/Workspace views preserved.
     """
     from pmqs import repository
 
-    src = Path(mockup_path or config.MOCKUP_HTML).read_text(encoding="utf-8")
+    src = Path(template_path or config.APP_TEMPLATE).read_text(encoding="utf-8")
     outcomes = repository.list_outcomes(db)
     # newest first by created_at
     outcomes = sorted(outcomes, key=lambda o: getattr(o, "created_at", ""), reverse=True)
@@ -505,7 +511,7 @@ def render_outcomes(db: Any, mockup_path: Path | None = None) -> str:
 
     new_src, n = _OUTCOMES_LIST_RE.subn(lambda m: f"{m.group(1)}{ledger_html}{m.group(3)}", src)
     if n == 0:
-        raise RuntimeError("Could not locate Outcomes list region in mockup HTML")
+        raise RuntimeError("Could not locate Outcomes list region in app template")
 
     # Update the 5 summary-strip counts.
     for t, c in counts.items():

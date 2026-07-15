@@ -104,4 +104,29 @@ Replace this with your actual runner command. The runner must:
 
 ## Project-Specific Notes
 
-<!-- Fill in your project's domain context, conventions, and agent instructions here -->
+### PMQs web layer — read before touching `app.html`
+
+The PMQs app has **one** HTML template: `pmqs/pmqs/web/templates/app.html`.
+`pmqs/pmqs/web/render.py` splices real data into it at request time using anchored
+regular expressions matched against its markup.
+
+This means the template's **class names, `id`s, `data-*` attributes, HTML comment
+sentinels and DOM nesting depth are a load-bearing API**, not cosmetic. Renaming
+`.card`, deleting the `<!-- WORKSPACE VIEW -->` comment, or adding one wrapper div
+around the artifact pane will break rendering.
+
+**The test suite does not catch this.** All 109 tests pass with the template's markup
+arbitrarily broken — no test asserts on markup. Failures surface at request time, or as
+a page that quietly renders fixture data instead of real data.
+
+Before changing that file, read **`pmqs/pmqs/web/TEMPLATE-CONTRACT.md`**, which
+enumerates every anchor. Colours, fonts, spacing and shadows are free to change;
+structure and names are not. If you must change an anchor, change `render.py` in the
+same commit and verify in a browser — `pytest` passing is necessary but not sufficient.
+
+### Standing hazards
+
+- Do **not** run `agentos apply` or `agentos upgrade` against this repo until the
+  adopt→upgrade data-loss bug is fixed.
+- `docs/build-spec-*.md` are historical phase records. They describe what was true at
+  the time and are not maintained as current documentation. Do not "correct" them.

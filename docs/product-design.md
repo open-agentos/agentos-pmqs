@@ -161,11 +161,17 @@ Three top-level modes:
 
 - Built as a single self-contained HTML mockup: dark ink + warm-paper document panel,
   teal/brass/violet/sky accent colors per outcome type.
-- File: `pmqs-mockup.html` (in this same `docs/` folder) — iterated across several
-  rounds of feedback. Single self-contained file: open it directly in a browser, no
-  build step. Treat it as the visual/interaction reference for Inbox, Workspace, and
-  Outcomes — the Phase 0/1 build spec below reuses its CSS/markup rather than
-  redesigning from scratch.
+- File: **`pmqs/pmqs/web/templates/app.html`** — iterated across several rounds of
+  feedback. Single self-contained file: open it directly in a browser, no build step.
+
+> **This stopped being a mockup.** It began as `docs/pmqs-mockup.html`, a visual
+> reference the Phase 0/1 build spec reused rather than redesigning from scratch. It is
+> now the app's live template: `render.py` splices real data into it at request time, and
+> PMQs cannot serve a page without it. It moved to `pmqs/pmqs/web/templates/app.html` to
+> stop `docs/` from looking like a safe place to edit production code.
+>
+> Its markup is a load-bearing API — see `pmqs/pmqs/web/TEMPLATE-CONTRACT.md` before
+> changing it.
 - Theming note: an earlier UK Prime Minister's Questions ceremonial framing was
   explored and simplified away in favor of a plainer inbox + workspace model. The
   parliamentary reference (bounded, time-boxed session) resurfaced organically in the
