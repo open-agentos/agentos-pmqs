@@ -117,9 +117,44 @@ def test_session_proposed_is_scoped(db):
     assert a_titles == {"from A"}
 
 
+# --- Persistent Refresh button + refresh banner ---
+def test_inbox_has_persistent_refresh_button(client):
+    # header Refresh button present even when the Inbox has questions
+    db = client._sf()
+    repository.create_question(db, title="existing q", source="pm", status="proposed")
+    db.close()
+    html = client.get("/").text
+    assert "⟳ Refresh" in html
+    assert "pmqsRefresh()" in html
+
+
+def test_refresh_banner_messages(client):
+    assert "Pulled 3 question" in client.get("/?refreshed=3").text
+    assert "no new questions from the repo" in client.get("/?refreshed=0").text
+
+
+def test_refresh_endpoint_redirects_with_count(client):
+    # No open issues in a fake state → generate returns 0; redirect carries the count.
+    import pmqs.api.inbox as inbox_mod
+
+    class _FakeClient:
+        def get_state(self):
+            return {"issues": [], "labels": []}
+
+    orig = inbox_mod.AgentOSClient
+    inbox_mod.AgentOSClient = _FakeClient
+    try:
+        r = client.post("/refresh", follow_redirects=False)
+        assert r.status_code == 303
+        assert "refreshed=" in r.headers["location"]
+    finally:
+        inbox_mod.AgentOSClient = orig
+
+
 # --- H1: HTML 404 for browser route ---
 def test_workspace_404_is_html(client):
     r = client.get("/workspace/does-not-exist")
     assert r.status_code == 404
     assert "<html" in r.text.lower()
     assert "Back to Inbox" in r.text
+

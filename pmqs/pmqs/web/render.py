@@ -147,16 +147,16 @@ def question_card_html(q: Any) -> str:
 
 
 def render_inbox(questions: list[Any], mockup_path: Path | None = None,
-                 flash: str | None = None) -> str:
+                 flash: str | None = None, refreshed: str | None = None) -> str:
     """Return the full mockup HTML with Inbox fixture cards replaced by real ones.
 
-    `flash` (optional): 'none' or an integer string N — renders a quiet banner for the
-    news-ingest result ("N new questions from news" / "nothing relevant today").
+    `flash` (optional): 'none' or an integer N — news-ingest banner.
+    `refreshed` (optional): integer N — repo-refresh banner ("Pulled N from the repo").
     """
     path = mockup_path or config.MOCKUP_HTML
     src = Path(path).read_text(encoding="utf-8")
 
-    banner = _flash_banner(flash)
+    banner = _flash_banner(flash) + _refresh_banner(refreshed)
     if questions:
         cards_html = banner + "\n\n".join(question_card_html(q) for q in questions)
     else:
@@ -178,6 +178,20 @@ def render_inbox(questions: list[Any], mockup_path: Path | None = None,
     new_src, n = _CARDS_REGION_RE.subn(_replace, src)
     if n == 0:
         raise RuntimeError("Could not locate Inbox card region in mockup HTML")
+
+    # Always-visible Refresh control in the Inbox header (testing convenience): runs the
+    # structural-trigger pipeline against the repo. Replaces the plain "Inbox" header.
+    header_html = (
+        '<div class="inbox-header" style="display:flex;align-items:center;gap:12px;'
+        'justify-content:space-between;">'
+        '<span>Inbox</span>'
+        '<button onclick="pmqsRefresh()" title="Pull questions from the repo" '
+        'style="background:#4a7d6e;color:#fff;border:0;border-radius:6px;padding:6px 14px;'
+        'font-size:12.5px;cursor:pointer;">⟳ Refresh</button>'
+        '</div>'
+    )
+    new_src, hn = re.subn(r'<div class="inbox-header">Inbox</div>', header_html, new_src)
+    # (hn==0 tolerated: header markup changed; the empty-state button still works.)
 
     # Wire quick-add + card clicks to real endpoints (override mockup demo JS).
     # Also force the Inbox view active on load so no war-room/workspace header bleeds in.
@@ -222,6 +236,23 @@ def _flash_banner(flash: str | None) -> str:
             msg = f"{n} new question{'s' if n != 1 else ''} from news."
         except ValueError:
             return ""
+    return (
+        f'        <div class="card system" style="border-left:3px solid #4a7d6e;">'
+        f'<div class="card-main"><div class="card-title">{html.escape(msg)}</div></div></div>\n\n'
+    )
+
+
+def _refresh_banner(refreshed: str | None) -> str:
+    if refreshed is None or refreshed == "":
+        return ""
+    try:
+        n = int(refreshed)
+    except ValueError:
+        return ""
+    if n == 0:
+        msg = "Refreshed — no new questions from the repo (no triggers fired)."
+    else:
+        msg = f"Pulled {n} question{'s' if n != 1 else ''} from the repo."
     return (
         f'        <div class="card system" style="border-left:3px solid #4a7d6e;">'
         f'<div class="card-main"><div class="card-title">{html.escape(msg)}</div></div></div>\n\n'

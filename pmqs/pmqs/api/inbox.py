@@ -27,20 +27,22 @@ def index(
     lens: str | None = Query(default=None),
     source: str | None = Query(default=None),
     news: str | None = Query(default=None),
+    refreshed: str | None = Query(default=None),
     db: OrmSession = Depends(get_session),
 ):
     # Canonical Inbox = persisted questions (proposed + saved), ranked. No silent swap to
     # a live-GitHub view — an empty store shows an explicit empty-state (see render_inbox).
     questions = repository.list_questions(db, lens_tag=lens, source=source)
-    return HTMLResponse(render_inbox(questions, flash=news))
+    return HTMLResponse(render_inbox(questions, flash=news, refreshed=refreshed))
 
 
 @router.post("/refresh")
 def refresh(db: OrmSession = Depends(get_session)):
-    # Pull questions from the repo via the structural-trigger pipeline, then show the Inbox.
+    # Pull questions from the repo via the structural-trigger pipeline, then show the Inbox
+    # with a banner reporting how many were generated (0 is a valid, explained result).
     state = AgentOSClient().get_state()
-    generate(db, state)
-    return RedirectResponse(url="/", status_code=303)
+    generated = generate(db, state)
+    return RedirectResponse(url=f"/?refreshed={len(generated)}", status_code=303)
 
 
 @router.post("/quick-add")
