@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from pmqs import config
+from pmqs.web import logo
 
 # --- Live wiring JS: injected into rendered pages so the template's buttons call the
 # real backend endpoints instead of the demo's client-side stubs. Uses classic form
@@ -85,6 +86,18 @@ display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
 <div style="margin-top:16px"><a href="/">← Back to Inbox</a></div></div></body></html>"""
 
 # --- Inbox (Phase 0): region from quick-add close to the inbox-wrap close. ---
+# The template's placeholder for the mark. logo.py is the single source; see
+# TEMPLATE-CONTRACT.md. Every render path loads through _load_template() so the
+# splice happens exactly once, in one place.
+_LOGO_MARK_SENTINEL = "<!-- LOGO MARK -->"
+
+
+def _load_template(template_path=None) -> str:
+    """Read the app template and inject the logo mark."""
+    src = Path(template_path or config.APP_TEMPLATE).read_text(encoding="utf-8")
+    return src.replace(_LOGO_MARK_SENTINEL, logo.mark_svg(title=None), 1)
+
+
 _CARDS_REGION_RE = re.compile(
     r'(<div class="quick-add">.*?</div>\s*)(.*?)(\s*</div>\s*</div>\s*<!-- WORKSPACE VIEW -->)',
     re.DOTALL,
@@ -159,8 +172,7 @@ def render_inbox(questions: list[Any], template_path: Path | None = None,
     `flash` (optional): 'none' or an integer N — news-ingest banner.
     `refreshed` (optional): integer N — repo-refresh banner ("Pulled N from the repo").
     """
-    path = template_path or config.APP_TEMPLATE
-    src = Path(path).read_text(encoding="utf-8")
+    src = _load_template(template_path)
 
     banner = _flash_banner(flash) + _refresh_banner(refreshed)
     if questions:
@@ -398,7 +410,7 @@ def render_workspace(
     Preserves all CSS/JS and the Inbox/Outcomes views. Replaces: ws-title, conversation
     messages, position-doc tab, evidence tab, proposed-questions tab, and session stats.
     """
-    src = Path(template_path or config.APP_TEMPLATE).read_text(encoding="utf-8")
+    src = _load_template(template_path)
 
     title = html.escape(session.topic or "War-room session")
     convo = "\n".join(_msg_html(m) for m in messages) or (
@@ -493,7 +505,7 @@ def render_outcomes(db: Any, template_path: Path | None = None) -> str:
     """
     from pmqs import repository
 
-    src = Path(template_path or config.APP_TEMPLATE).read_text(encoding="utf-8")
+    src = _load_template(template_path)
     outcomes = repository.list_outcomes(db)
     # newest first by created_at
     outcomes = sorted(outcomes, key=lambda o: getattr(o, "created_at", ""), reverse=True)
