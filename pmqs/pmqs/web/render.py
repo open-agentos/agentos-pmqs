@@ -40,6 +40,22 @@ document.addEventListener('DOMContentLoaded', function(){
   }, true);
   var inboxNav = document.querySelector('.nav-item[data-nav="inbox"]');
   if (inboxNav) inboxNav.addEventListener('click', function(){ window.location.href = '/'; }, true);
+  // Phase 4: add a Settings link to the left rail (mockup has no way to reach /settings).
+  var rail = document.querySelector('.rail-spacer') || document.querySelector('.nav-item');
+  if (rail && !document.getElementById('pmqs-settings-nav')) {
+    var s = document.createElement('div');
+    s.className = 'nav-item';
+    s.id = 'pmqs-settings-nav';
+    s.textContent = 'Settings';
+    s.style.cursor = 'pointer';
+    s.addEventListener('click', function(){ window.location.href = '/settings'; });
+    // insert before the rail spacer if present, else after the last nav-item
+    if (rail.classList && rail.classList.contains('rail-spacer')) {
+      rail.parentNode.insertBefore(s, rail);
+    } else {
+      rail.parentNode.appendChild(s);
+    }
+  }
 });
 </script>
 """
@@ -77,13 +93,20 @@ def question_card_html(q: Any) -> str:
         variant = "saved"
     elif source == "pm":
         variant = "asked"
+    elif source == "news":
+        variant = "system news"  # reuse system card styling; 'news' hook for the pill
     else:
         variant = "system"
 
     pills = []
     for t in lens_tags:
         pills.append(_pill(t.replace("_", " ")))
-    pills.append(_pill("Asked by you" if source == "pm" else "Raised by system", "source"))
+    if source == "news":
+        pills.append(_pill("From news", "source"))
+    elif source == "pm":
+        pills.append(_pill("Asked by you", "source"))
+    else:
+        pills.append(_pill("Raised by system", "source"))
     if score is not None:
         pills.append(_pill(f"score {score:.2f}"))
 
@@ -182,12 +205,25 @@ def _evidence_html(evidence: list[dict]) -> str:
         return '<div class="evidence-item"><div class="evidence-title">No evidence bound yet.</div></div>'
     out = []
     for e in evidence:
-        title = html.escape(f"{e.get('type', 'ref')} {e.get('ref', '')}".strip())
-        url = html.escape(e.get("url", ""))
-        out.append(
-            f'<div class="evidence-item"><div class="evidence-title">{title}</div>'
-            f'<div class="evidence-sub">{url}</div></div>'
-        )
+        if e.get("type") == "news":
+            # Attributed-but-hedged news citation.
+            src = html.escape(e.get("source", "") or "source")
+            title = html.escape(e.get("title", "") or "")
+            date = html.escape(e.get("date", "") or "")
+            url = html.escape(e.get("url", "") or "")
+            meta = f'{src}' + (f' · {date}' if date else '')
+            link = f'<a href="{url}">{url}</a>' if url else ''
+            out.append(
+                f'<div class="evidence-item"><div class="evidence-title">“{title}”</div>'
+                f'<div class="evidence-sub">reportedly, via {meta} {link}</div></div>'
+            )
+        else:
+            title = html.escape(f"{e.get('type', 'ref')} {e.get('ref', '')}".strip())
+            url = html.escape(e.get("url", ""))
+            out.append(
+                f'<div class="evidence-item"><div class="evidence-title">{title}</div>'
+                f'<div class="evidence-sub">{url}</div></div>'
+            )
     return "\n".join(out)
 
 
@@ -414,6 +450,14 @@ def render_settings(db: Any) -> str:
     model = html.escape(cfg.get("model", ""))
     base_url = html.escape(cfg.get("base_url", ""))
 
+    news = settings_mod.get_news_config(db)
+    n_has_raw = bool(news.get("api_key_raw"))
+    n_key_display = "•••••••• (stored)" if n_has_raw else html.escape(news.get("api_key_ref") or "")
+    n_queries = html.escape("\n".join(news.get("queries", [])))
+    n_profile = html.escape(news.get("product_profile", ""))
+    n_top = html.escape(str(news.get("top_n", 3)))
+    n_thresh = html.escape(str(news.get("min_relevance", 0.5)))
+
     return f"""<!doctype html><html><head><meta charset="utf-8"><title>PMQs — Settings</title>
 <style>
 body{{background:#1a1a1f;color:#e8e6e0;font:14px/1.5 -apple-system,system-ui,sans-serif;margin:0;padding:40px}}
@@ -427,6 +471,10 @@ border-radius:6px;padding:8px 10px;font-size:13px}}
 .hint{{font-size:11px;color:#6a675f;margin-top:4px}}
 button{{margin-top:18px;background:#4a7d6e;color:#fff;border:0;border-radius:6px;padding:9px 18px;
 font-size:13px;cursor:pointer}} a{{color:#7fb8a6}}
+textarea{{width:100%;box-sizing:border-box;background:#1a1a1f;border:1px solid #3a3a44;color:#e8e6e0;
+border-radius:6px;padding:8px 10px;font-size:13px;min-height:64px;font-family:inherit}}
+.row{{display:flex;gap:12px}} .row > div{{flex:1}}
+form.inline{{display:inline}} button.ghost{{background:#3a3a44}}
 </style></head><body><div class="wrap">
 <h1>Settings</h1><div class="sub">PMQs prototype configuration · <a href="/">← Inbox</a></div>
 <form method="post" action="/settings">
@@ -437,5 +485,26 @@ font-size:13px;cursor:pointer}} a{{color:#7fb8a6}}
 <div class="hint">Reference an environment variable rather than pasting a key. The key is never displayed once stored.</div>
 <label>API key (optional, inline — stored, never shown)</label><input name="api_key_raw" type="password" value="" placeholder="leave blank to keep current">
 <label>Base URL (optional, for OpenAI-compatible endpoints)</label><input name="base_url" value="{base_url}" placeholder="">
-<button type="submit">Save</button>
-</div></form></div></body></html>"""
+<button type="submit">Save LLM settings</button>
+</div></form>
+
+<form method="post" action="/settings/news">
+<div class="section"><h2>News (Brave Search)</h2>
+<label>Brave API key env var</label><input name="news_api_key_ref" value="{n_key_display}" placeholder="BRAVE_API_KEY">
+<div class="hint">The Brave key is stored as an env-var reference or inline (masked, never shown). Never committed to the repo.</div>
+<label>Brave API key (optional, inline — stored, never shown)</label><input name="news_api_key_raw" type="password" value="" placeholder="leave blank to keep current">
+<label>Search queries (one per line)</label><textarea name="news_queries" placeholder="agent orchestration&#10;AI product management">{n_queries}</textarea>
+<label>Product profile (what the relevance pass judges against)</label><textarea name="product_profile" placeholder="What the product is, who competes, what the PM cares about…">{n_profile}</textarea>
+<div class="row">
+<div><label>Max questions per run</label><input name="top_n" value="{n_top}"></div>
+<div><label>Relevance threshold (0–1)</label><input name="min_relevance" value="{n_thresh}"></div>
+</div>
+<button type="submit">Save news settings</button>
+</div></form>
+
+<form method="post" action="/news/ingest" class="inline">
+<div class="section"><h2>Fetch news now</h2>
+<div class="hint">Runs a manual ingestion + relevance pass against your configured queries. (Cron scheduling comes later.)</div>
+<button type="submit">Fetch news now</button>
+</div></form>
+</div></body></html>"""
