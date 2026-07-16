@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Boolean, ForeignKey, Text, Float
+from sqlalchemy import Boolean, ForeignKey, Text, Float, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from pmqs.db import Base
@@ -99,6 +99,57 @@ class NewsItem(Base):
     published_at: Mapped[str | None] = mapped_column(Text)
     fetched_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
     processed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class Product(Base):
+    """A GitHub-primitives repo PMQs can point at (build-spec: multi-product model).
+
+    Global/shared -- keyed by (org, repo) so two PMs pointing at the same repo resolve
+    to the same Product row rather than duplicating it. A Product carries no PM's
+    private decision data; see Workspace for that.
+    """
+
+    __tablename__ = "products"
+    __table_args__ = (UniqueConstraint("org", "repo", name="uq_products_org_repo"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
+    org: Mapped[str] = mapped_column(Text, nullable=False)
+    repo: Mapped[str] = mapped_column(Text, nullable=False)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    accent: Mapped[str | None] = mapped_column(Text)  # small icon/accent hint for the switcher
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
+
+    @property
+    def full_name(self) -> str:
+        return f"{self.org}/{self.repo}"
+
+
+class Workspace(Base):
+    """A PM's private decision loop against one Product -- the isolation boundary.
+
+    Every hosted-store table that used to implicitly mean "the repo" (Questions,
+    Outcomes, Sessions, NewsItem, Settings) is scoped to a workspace_id. Two PMs can
+    share a Product (same repo) while each keeps a fully separate Workspace: separate
+    Questions, Outcomes, Policies, watchlist. `account_id` is a hardcoded single-row
+    default until real multi-tenant auth (Phase 5); this table exists now so that
+    later phase doesn't require a data migration.
+    """
+
+    __tablename__ = "workspaces"
+    __table_args__ = (UniqueConstraint("slug", name="uq_workspaces_slug"),)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
+    account_id: Mapped[str] = mapped_column(Text, nullable=False, default="default")
+    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), nullable=False)
+    slug: Mapped[str] = mapped_column(Text, nullable=False)  # url-safe, unique per account
+    nickname: Mapped[str | None] = mapped_column(Text)  # optional per-PM override of display_name
+    lens_weights: Mapped[str | None] = mapped_column(Text)  # JSON object, None = use config defaults
+    archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    added_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
+
+    @property
+    def lens_weights_dict(self) -> dict[str, Any]:
+        return json.loads(self.lens_weights or "{}")
 
 
 class Outcome(Base):
