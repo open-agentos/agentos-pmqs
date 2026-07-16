@@ -28,6 +28,7 @@ class Question(Base):
     __tablename__ = "questions"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
+    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"))
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     lens_tags: Mapped[str] = mapped_column(Text, nullable=False, default="[]")   # JSON array
@@ -58,6 +59,7 @@ class Session(Base):
     __tablename__ = "sessions"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
+    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"))
     topic: Mapped[str | None] = mapped_column(Text)
     question_id: Mapped[str | None] = mapped_column(ForeignKey("questions.id"))
     parent_id: Mapped[str | None] = mapped_column(ForeignKey("sessions.id"))  # branching
@@ -87,11 +89,19 @@ class Setting(Base):
 class NewsItem(Base):
     """Raw news item (Phase 4). Staging store OUTSIDE the Issues substrate and separate
     from `questions` — raw material is not evidence until promoted to a Question. Must
-    never be written to GitHub."""
+    never be written to GitHub.
+
+    KNOWN GAP from the #52 workspace-scoping pass: `url` is still globally unique, not
+    (workspace_id, url). Harmless while news ingestion (Phase 4) isn't live, but once
+    it is, two workspaces that both watch the same story will dedupe against each
+    other incorrectly. Needs a table rebuild to fix (SQLite can't ALTER a UNIQUE
+    constraint in place) -- left for whoever picks Phase 4 back up.
+    """
 
     __tablename__ = "news_items"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
+    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"))
     source_label: Mapped[str] = mapped_column(Text, nullable=False, default="")  # e.g. query or publisher
     title: Mapped[str] = mapped_column(Text, nullable=False, default="")
     url: Mapped[str] = mapped_column(Text, nullable=False, unique=True)  # dedup key
@@ -156,6 +166,7 @@ class Outcome(Base):
     __tablename__ = "outcomes"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
+    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"))
     type: Mapped[str] = mapped_column(Text, nullable=False)  # issue|policy|document|meeting|question
     session_id: Mapped[str | None] = mapped_column(ForeignKey("sessions.id"))
     payload: Mapped[str] = mapped_column(Text, nullable=False, default="{}")  # JSON
