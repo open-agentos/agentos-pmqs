@@ -5,10 +5,10 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs.models import NewsItem, Outcome, Question, Session, SessionMessage
+from pmqs.models import Member, NewsItem, Outcome, Question, Session, SessionMessage
 
 
 def _now() -> str:
@@ -470,3 +470,91 @@ def mark_news_processed(db: OrmSession, item_ids: list[str]) -> None:
         if item is not None:
             item.processed = True
     db.commit()
+
+
+def list_workspace_rows(
+    db: OrmSession,
+    *,
+    product_id: str | None = None,
+    member_id: str | None = None,
+    owner: str = "any",
+) -> list[dict[str, Any]]:
+    """Rows for the Workspace list view (build-spec §10.1), newest-activity first.
+
+    Each row: {session, name, owner_id, owner_name, last_modified, outcome_count, is_private}.
+
+    `owner` is the filter chip: 'any' | 'mine' | 'not_mine', backed by author_member_id.
+
+    PRIVATE WORKSPACES APPEAR ONLY FOR THEIR OWNER (§10.1) -- like an unshared Doc they
+    are simply absent from everyone else's list, not greyed out or shown as "private".
+    Their absence is the feature: a redacted row still tells you a colleague is working
+    on something, which is exactly what private is for.
+
+    DEVIATION FROM §10.1, flagged (§0): the spec sources "Last modified" from
+    `session.updated_at`. THAT COLUMN DOES NOT EXIST -- §7's target state never adds it,
+    so the doc specifies a column no work item creates. Rather than add one, this derives
+    last-modified as max(session.created_at, latest message, latest outcome) in the same
+    query. A stored updated_at would have to be touched on every write path that can
+    modify a room (messages, outcomes, status, position doc); miss one and the column is
+    silently wrong forever, which is the drift §7's design note warns about. Derived
+    cannot drift. If a stored column is wanted for indexing later, that is a schema item
+    with a backfill, not a quiet default here.
+    """
+    latest_message = (
+        select(SessionMessage.session_id, func.max(SessionMessage.created_at).label("ts"))
+        .group_by(SessionMessage.session_id)
+        .subquery()
+    )
+    outcome_agg = (
+        select(
+            Outcome.session_id,
+            func.max(Outcome.created_at).label("ts"),
+            func.count(Outcome.id).label("n"),
+        )
+        .group_by(Outcome.session_id)
+        .subquery()
+    )
+    stmt = (
+        select(
+            Session,
+            Member.display_name,
+            latest_message.c.ts,
+            outcome_agg.c.ts,
+            outcome_agg.c.n,
+        )
+        .outerjoin(Member, Session.author_member_id == Member.id)
+        .outerjoin(latest_message, latest_message.c.session_id == Session.id)
+        .outerjoin(outcome_agg, outcome_agg.c.session_id == Session.id)
+    )
+    if product_id is not None:
+        stmt = stmt.where(Session.product_id == product_id)
+    # §10.1: shared rooms, plus my own private ones. Same shape as the ledger's §4 filter.
+    visible = [Session.visibility != "private"]
+    if member_id is not None:
+        visible.append(Session.author_member_id == member_id)
+    stmt = stmt.where(or_(*visible))
+    if owner == "mine" and member_id is not None:
+        stmt = stmt.where(Session.author_member_id == member_id)
+    elif owner == "not_mine" and member_id is not None:
+        stmt = stmt.where(
+            or_(Session.author_member_id != member_id, Session.author_member_id.is_(None))
+        )
+
+    rows = []
+    for session, owner_name, msg_ts, out_ts, out_n in db.execute(stmt):
+        rows.append(
+            {
+                "session": session,
+                "name": session.topic or "(untitled)",
+                "owner_id": session.author_member_id,
+                "owner_name": owner_name or "Unknown",
+                "last_modified": max(
+                    x for x in (session.created_at, msg_ts, out_ts) if x
+                ),
+                "outcome_count": int(out_n or 0),
+                "is_private": session.visibility == "private",
+            }
+        )
+    # Default sort: last modified, descending (§10.1).
+    rows.sort(key=lambda r: r["last_modified"], reverse=True)
+    return rows

@@ -69,6 +69,12 @@ document.addEventListener('DOMContentLoaded', function(){{
   }}, true);
   var inboxNav = document.querySelector('.nav-item[data-nav="inbox"]');
   if (inboxNav) inboxNav.addEventListener('click', function(){{ window.location.href = '{prefix}/'; }}, true);
+  // §10.1: the Workspace nav opens a LIST of rooms, not whichever room was last open.
+  var wsNav = document.querySelector('.nav-item[data-nav="workspace"]');
+  if (wsNav) wsNav.addEventListener('click', function(e){{
+    e.stopImmediatePropagation();
+    window.location.href = '{prefix}/workspaces';
+  }}, true);
   // Phase 4: add a Settings link to the left rail (template has no way to reach /settings).
   // Settings stays account-wide (not workspace-scoped), so this one is deliberately
   // NOT prefixed even on a /w/{{slug}}/ page.
@@ -574,6 +580,93 @@ def _author_names(db: Any, outcomes: list) -> dict:
         return {}
     rows = db.query(Member).filter(Member.id.in_(ids)).all()
     return {m.id: m.display_name for m in rows}
+
+
+_WORKSPACES_LIST_RE = re.compile(
+    r'(<div id="workspaces-list">)(.*?)(</div>\s*</div>\s*</div>)', re.DOTALL
+)
+
+
+def _workspace_row_html(row: dict) -> str:
+    """One Workspace list row (build-spec §10.1).
+
+    Reuses .ledger-item/.ledger-main/.ledger-src/.ledger-time and existing tokens -- no
+    new colour token, so the §11 drift guards stay green. Per §10.1 hue carries state,
+    not identity: rows are NOT coloured, and "private" is a word rather than a hue.
+    """
+    name = html.escape(row["name"])
+    meta = f'{html.escape(row["owner_name"])} · {row["outcome_count"]} outcome'
+    meta += "" if row["outcome_count"] == 1 else "s"
+    if row["is_private"]:
+        meta += " · private"
+    return (
+        f'<div class="ledger-item" data-ws-id="{html.escape(row["session"].id)}" '
+        f'onclick="pmqsOpenRoom(\'{html.escape(row["session"].id)}\')">'
+        f'<div class="ledger-main">{name}<div class="ledger-src">{meta}</div></div>'
+        f'<span class="ledger-time">{html.escape((row["last_modified"] or "")[:10])}</span>'
+        f"</div>"
+    )
+
+
+def render_workspace_list(
+    db: Any,
+    rows: list[dict],
+    template_path: Path | None = None,
+    *,
+    owner: str = "any",
+    workspace_slug: str | None = None,
+) -> str:
+    """The Workspace nav item's list view (build-spec §10.1), modelled on Google Docs.
+
+    Private Workspaces are ABSENT for non-owners rather than redacted -- see
+    repository.list_workspace_rows. The filter chips are server-rendered links, not
+    client-side filtering, so the visibility rules are enforced in SQL every time rather
+    than shipping every row to the browser and hiding some with CSS.
+    """
+    src = _load_template(template_path)
+    src = _apply_product_switcher(src, db, workspace_slug)
+
+    items = [_workspace_row_html(r) for r in rows]
+    body = "\n".join(items) if items else (
+        '<div class="ledger-item"><div class="ledger-main">No workspaces yet.</div></div>'
+    )
+    new_src, n = _WORKSPACES_LIST_RE.subn(lambda m: f"{m.group(1)}{body}{m.group(3)}", src)
+    if n == 0:
+        raise RuntimeError("Could not locate Workspaces list region in app template")
+
+    # Mark the active filter chip.
+    for key in ("any", "mine", "not_mine"):
+        cls = "filter-pill active" if key == owner else "filter-pill"
+        new_src = new_src.replace(
+            f'<div class="filter-pill active" data-ws-owner="{key}">',
+            f'<div class="{cls}" data-ws-owner="{key}">',
+        ).replace(
+            f'<div class="filter-pill" data-ws-owner="{key}">',
+            f'<div class="{cls}" data-ws-owner="{key}">',
+        )
+
+    _prefix = f"/w/{workspace_slug}" if workspace_slug else ""
+    js = _live_js_common(_prefix) + f"""
+<script>
+function pmqsOpenRoom(sid){{ window.location.href = '{_prefix}/workspace/' + sid; }}
+document.addEventListener('DOMContentLoaded', function(){{
+  // Activate this view directly rather than via showView(): the room view and the list
+  // view share one nav item, so showView's nav lookup doesn't map 1:1 here.
+  document.querySelectorAll('.view').forEach(function(v){{ v.classList.remove('active'); }});
+  var el = document.getElementById('view-workspaces');
+  if (el) el.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(function(n){{ n.classList.remove('active'); }});
+  var nav = document.querySelector('.nav-item[data-nav="workspace"]');
+  if (nav) nav.classList.add('active');
+  document.querySelectorAll('[data-ws-owner]').forEach(function(c){{
+    c.addEventListener('click', function(){{
+      window.location.href = '{_prefix}/workspaces?owner=' + c.dataset.wsOwner;
+    }});
+  }});
+}});
+</script>
+"""
+    return new_src.replace("</body>", js + "</body>")
 
 
 def _ledger_item_html(o: Any, payload: dict, author: str | None = None) -> str:

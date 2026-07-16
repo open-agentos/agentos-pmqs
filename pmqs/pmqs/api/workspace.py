@@ -7,14 +7,14 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, Form
+from fastapi import APIRouter, Depends, Form, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import lenses, position_doc, products, repository, warroom
+from pmqs import lenses, members, position_doc, products, repository, warroom
 from pmqs.db import get_session
 from pmqs.resolve import resolve_question_id
-from pmqs.web.render import render_error, render_workspace
+from pmqs.web.render import render_error, render_workspace, render_workspace_list
 
 router = APIRouter()
 
@@ -133,3 +133,34 @@ def workspace_add_proposed(session_id: str, qid: str, db: OrmSession = Depends(g
     # the ranked Inbox list. It's already scored/visible; this records the PM's intent.
     repository.update_question_status(db, qid, "saved")
     return RedirectResponse(url=f"/workspace/{session_id}", status_code=303)
+
+
+@router.get("/workspaces", response_class=HTMLResponse)
+@router.get("/w/{workspace_slug}/workspaces", response_class=HTMLResponse)
+def workspace_list(
+    workspace_slug: str | None = None,
+    owner: str = Query(default="any"),
+    db: OrmSession = Depends(get_session),
+):
+    """The Workspace list view (build-spec §10.1) — what the Workspace nav item opens.
+
+    `owner` is the filter chip: any | mine | not_mine. An unknown value falls back to
+    'any' rather than erroring: a bad query string should not be able to 500 the page,
+    and 'any' is the safe default because visibility is enforced in the query regardless
+    of the chip.
+    """
+    if owner not in ("any", "mine", "not_mine"):
+        owner = "any"
+    try:
+        product_id = products.resolve_product_id(db, workspace_slug)
+        rows = repository.list_workspace_rows(
+            db,
+            product_id=product_id,
+            member_id=members.current_member_id(db),
+            owner=owner,
+        )
+        return HTMLResponse(
+            render_workspace_list(db, rows, owner=owner, workspace_slug=workspace_slug)
+        )
+    except Exception as exc:
+        return HTMLResponse(render_error(str(exc)), status_code=500)
