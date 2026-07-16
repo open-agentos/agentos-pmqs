@@ -1,4 +1,5 @@
-"""Tests for workspace_id scoping across hosted-store tables + backfill (issue #52)."""
+"""Tests for product_id scoping across hosted-store tables + backfill (issue #52,
+folded into Product per Shared Outcomes build-spec §8 step 2)."""
 import os
 
 os.environ["PMQS_LLM_MODE"] = "off"
@@ -29,78 +30,74 @@ def db():
     session.close()
 
 
-def test_create_question_without_workspace_id_falls_back_to_default(db):
+def test_create_question_without_product_id_falls_back_to_default(db):
     q = repository.create_question(db, title="Ship or wait?", source="system")
-    assert q.workspace_id is not None
-    ws = products.get_or_create_default_workspace(db)
-    assert q.workspace_id == ws.id
+    assert q.product_id is not None
+    p = products.get_or_create_default_product(db)
+    assert q.product_id == p.id
 
 
-def test_list_questions_scoped_to_workspace(db):
+def test_list_questions_scoped_to_product(db):
     product_a = products.get_or_create_product(db, org="open-agentos", repo="agentos-pmqs")
     product_b = products.get_or_create_product(db, org="open-agentos", repo="agentos")
-    ws_a = products.create_workspace(db, product=product_a)
-    ws_b = products.create_workspace(db, product=product_b)
 
-    repository.create_question(db, title="A question", source="system", workspace_id=ws_a.id)
-    repository.create_question(db, title="B question", source="system", workspace_id=ws_b.id)
+    repository.create_question(db, title="A question", source="system", product_id=product_a.id)
+    repository.create_question(db, title="B question", source="system", product_id=product_b.id)
 
-    only_a = repository.list_questions(db, workspace_id=ws_a.id)
-    only_b = repository.list_questions(db, workspace_id=ws_b.id)
+    only_a = repository.list_questions(db, product_id=product_a.id)
+    only_b = repository.list_questions(db, product_id=product_b.id)
     assert [q.title for q in only_a] == ["A question"]
     assert [q.title for q in only_b] == ["B question"]
 
-    # Omitting workspace_id still returns everything -- back-compat for pre-#56 callers.
-    assert len(repository.list_questions(db, workspace_id=None)) == 2
+    # Omitting product_id still returns everything -- back-compat for pre-#56 callers.
+    assert len(repository.list_questions(db, product_id=None)) == 2
 
 
-def test_outcomes_and_sessions_scoped_to_workspace(db):
+def test_outcomes_and_sessions_scoped_to_product(db):
     product_a = products.get_or_create_product(db, org="acme", repo="widgets")
     product_b = products.get_or_create_product(db, org="acme", repo="gizmos")
-    ws_a = products.create_workspace(db, product=product_a)
-    ws_b = products.create_workspace(db, product=product_b)
 
-    repository.create_outcome(db, type="document", payload={"title": "A doc"}, workspace_id=ws_a.id)
-    repository.create_outcome(db, type="document", payload={"title": "B doc"}, workspace_id=ws_b.id)
-    repository.open_session(db, topic="A session", workspace_id=ws_a.id)
-    repository.open_session(db, topic="B session", workspace_id=ws_b.id)
+    repository.create_outcome(db, type="document", payload={"title": "A doc"}, product_id=product_a.id)
+    repository.create_outcome(db, type="document", payload={"title": "B doc"}, product_id=product_b.id)
+    repository.open_session(db, topic="A session", product_id=product_a.id)
+    repository.open_session(db, topic="B session", product_id=product_b.id)
 
-    assert len(repository.list_outcomes(db, workspace_id=ws_a.id)) == 1
-    assert len(repository.list_outcomes(db, workspace_id=ws_b.id)) == 1
-    assert len(repository.list_durable_outcomes(db, workspace_id=ws_a.id)) == 1
+    assert len(repository.list_outcomes(db, product_id=product_a.id)) == 1
+    assert len(repository.list_outcomes(db, product_id=product_b.id)) == 1
+    assert len(repository.list_durable_outcomes(db, product_id=product_a.id)) == 1
 
-    sessions_a = db.scalars(select(SessionModel).where(SessionModel.workspace_id == ws_a.id)).all()
+    sessions_a = db.scalars(select(SessionModel).where(SessionModel.product_id == product_a.id)).all()
     assert len(sessions_a) == 1
     assert sessions_a[0].topic == "A session"
 
 
-def test_backfill_assigns_default_workspace_to_pre_existing_rows(db):
-    # Simulate rows created before the Product/Workspace model existed: insert directly
-    # via the ORM with no workspace_id at all (bypassing the repository fallback).
+def test_backfill_assigns_default_product_to_pre_existing_rows(db):
+    # Simulate rows created before the Product model existed: insert directly via the
+    # ORM with no product_id at all (bypassing the repository fallback).
     db.add(Question(title="legacy question", source="system"))
     db.add(Outcome(type="document", payload="{}"))
     db.add(SessionModel(topic="legacy session"))
     db.add(NewsItem(url="https://example.com/legacy", title="legacy news"))
     db.commit()
 
-    assert db.query(Question).filter(Question.workspace_id.is_(None)).count() == 1
+    assert db.query(Question).filter(Question.product_id.is_(None)).count() == 1
 
-    # _backfill_default_workspace() opens its own SessionLocal() bound to the real
+    # _backfill_default_product() opens its own SessionLocal() bound to the real
     # module-level engine, not this test's isolated in-memory one -- so instead we
     # exercise the same logic path it uses, against this test's session, directly.
     from sqlalchemy import update
 
-    ws = products.get_or_create_default_workspace(db)
+    p = products.get_or_create_default_product(db)
     for model in (Question, Outcome, SessionModel, NewsItem):
-        db.execute(update(model).where(model.workspace_id.is_(None)).values(workspace_id=ws.id))
+        db.execute(update(model).where(model.product_id.is_(None)).values(product_id=p.id))
     db.commit()
 
-    assert db.query(Question).filter(Question.workspace_id.is_(None)).count() == 0
-    assert db.get(Question, db.scalars(select(Question.id)).first()).workspace_id == ws.id
+    assert db.query(Question).filter(Question.product_id.is_(None)).count() == 0
+    assert db.get(Question, db.scalars(select(Question.id)).first()).product_id == p.id
 
 
-def test_backfill_default_workspace_integration(monkeypatch):
-    """Exercise the real db._backfill_default_workspace() (not just its logic inline),
+def test_backfill_default_product_integration(monkeypatch):
+    """Exercise the real db._backfill_default_product() (not just its logic inline),
     by pointing the module's engine/SessionLocal at a throwaway in-memory DB."""
     from pmqs import db as db_module
 
@@ -120,9 +117,9 @@ def test_backfill_default_workspace_integration(monkeypatch):
     seed.commit()
     seed.close()
 
-    db_module._backfill_default_workspace()
+    db_module._backfill_default_product()
 
     check = TestSessionLocal()
     q = check.scalars(select(Question)).first()
-    assert q.workspace_id is not None
+    assert q.product_id is not None
     check.close()

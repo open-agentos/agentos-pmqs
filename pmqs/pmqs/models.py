@@ -1,4 +1,5 @@
-"""models.py — ORM models matching the Phase 0.5 schema in build-spec-phase-0-1.md.
+"""models.py — ORM models matching the Phase 0.5 schema in build-spec-phase-0-1.md,
+folded per docs/build-spec-shared-outcomes-plan.md §7/§8 step 2 (workspace -> product).
 
 JSON-ish columns (lens_tags, evidence, score_dims, payload) are stored as TEXT and
 serialized/deserialized via helpers to stay Postgres-swap friendly.
@@ -28,7 +29,7 @@ class Question(Base):
     __tablename__ = "questions"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
-    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"))
+    product_id: Mapped[str | None] = mapped_column(ForeignKey("products.id"))
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     lens_tags: Mapped[str] = mapped_column(Text, nullable=False, default="[]")   # JSON array
@@ -59,7 +60,7 @@ class Session(Base):
     __tablename__ = "sessions"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
-    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"))
+    product_id: Mapped[str | None] = mapped_column(ForeignKey("products.id"))
     topic: Mapped[str | None] = mapped_column(Text)
     question_id: Mapped[str | None] = mapped_column(ForeignKey("questions.id"))
     parent_id: Mapped[str | None] = mapped_column(ForeignKey("sessions.id"))  # branching
@@ -92,8 +93,8 @@ class NewsItem(Base):
     never be written to GitHub.
 
     KNOWN GAP from the #52 workspace-scoping pass: `url` is still globally unique, not
-    (workspace_id, url). Harmless while news ingestion (Phase 4) isn't live, but once
-    it is, two workspaces that both watch the same story will dedupe against each
+    (product_id, url). Harmless while news ingestion (Phase 4) isn't live, but once
+    it is, two products that both watch the same story will dedupe against each
     other incorrectly. Needs a table rebuild to fix (SQLite can't ALTER a UNIQUE
     constraint in place) -- left for whoever picks Phase 4 back up.
     """
@@ -101,7 +102,7 @@ class NewsItem(Base):
     __tablename__ = "news_items"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
-    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"))
+    product_id: Mapped[str | None] = mapped_column(ForeignKey("products.id"))
     source_label: Mapped[str] = mapped_column(Text, nullable=False, default="")  # e.g. query or publisher
     title: Mapped[str] = mapped_column(Text, nullable=False, default="")
     url: Mapped[str] = mapped_column(Text, nullable=False, unique=True)  # dedup key
@@ -112,50 +113,44 @@ class NewsItem(Base):
 
 
 class Product(Base):
-    """A GitHub-primitives repo PMQs can point at (build-spec: multi-product model).
+    """The tenant-scoped unit (build-spec §3): Product is what peers join. Repos,
+    watchlist, lens weights, and Membership all attach here — the Slack-'team/
+    workspace' equivalent, not a bare repo pointer.
 
-    Global/shared -- keyed by (org, repo) so two PMs pointing at the same repo resolve
-    to the same Product row rather than duplicating it. A Product carries no PM's
-    private decision data; see Workspace for that.
+    Deduped by (org, repo): while there is no Org/multi-tenant boundary yet (Phase 5+
+    auth), two calls to add the same repo resolve to the SAME Product row, and sharing
+    across PMs is via Membership rows, not via separate Product rows. When a real Org
+    boundary exists, the dedup key should widen to (org_id, org, repo) so two
+    different companies tracking the same public repo get separate Product rows —
+    that widening is a follow-up, not in scope here.
+
+    Folded from the old `workspace` table (build-spec §8 step 2): `slug` (URL-safe,
+    used by /w/{slug}/... routing), `nickname` (optional display override),
+    `lens_weights` (JSON, Product-scoped per build-spec §5), and `archived` all used
+    to live on a separate per-tenant `workspace` row; they now live directly on
+    Product, since Membership is what supplies per-PM sharing, not a second row.
     """
 
     __tablename__ = "products"
-    __table_args__ = (UniqueConstraint("org", "repo", name="uq_products_org_repo"),)
+    __table_args__ = (
+        UniqueConstraint("org", "repo", name="uq_products_org_repo"),
+        UniqueConstraint("slug", name="uq_products_slug"),
+    )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
     org: Mapped[str] = mapped_column(Text, nullable=False)
     repo: Mapped[str] = mapped_column(Text, nullable=False)
     display_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
     accent: Mapped[str | None] = mapped_column(Text)  # small icon/accent hint for the switcher
+    slug: Mapped[str | None] = mapped_column(Text)  # url-safe, unique; folded from workspace.slug
+    nickname: Mapped[str | None] = mapped_column(Text)  # optional display override; folded from workspace.nickname
+    lens_weights: Mapped[str | None] = mapped_column(Text)  # JSON object, None = use config defaults
+    archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
 
     @property
     def full_name(self) -> str:
         return f"{self.org}/{self.repo}"
-
-
-class Workspace(Base):
-    """A PM's private decision loop against one Product -- the isolation boundary.
-
-    Every hosted-store table that used to implicitly mean "the repo" (Questions,
-    Outcomes, Sessions, NewsItem, Settings) is scoped to a workspace_id. Two PMs can
-    share a Product (same repo) while each keeps a fully separate Workspace: separate
-    Questions, Outcomes, Policies, watchlist. `account_id` is a hardcoded single-row
-    default until real multi-tenant auth (Phase 5); this table exists now so that
-    later phase doesn't require a data migration.
-    """
-
-    __tablename__ = "workspaces"
-    __table_args__ = (UniqueConstraint("slug", name="uq_workspaces_slug"),)
-
-    id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
-    account_id: Mapped[str] = mapped_column(Text, nullable=False, default="default")
-    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), nullable=False)
-    slug: Mapped[str] = mapped_column(Text, nullable=False)  # url-safe, unique per account
-    nickname: Mapped[str | None] = mapped_column(Text)  # optional per-PM override of display_name
-    lens_weights: Mapped[str | None] = mapped_column(Text)  # JSON object, None = use config defaults
-    archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    added_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
 
     @property
     def lens_weights_dict(self) -> dict[str, Any]:
@@ -178,8 +173,10 @@ class Member(Base):
 class Membership(Base):
     """A Member's attachment to a Product (§3: membership attaches at the Product level).
 
-    role ships with no behaviour behind it yet -- one TEXT column now beats a
-    migration later. Do not build an RBAC layer on top of it (build-spec §7).
+    This is the actual "peers join my Product" mechanism (the Slack-workspace-invite
+    equivalent) — one row per person per Product. role ships with no behaviour behind
+    it yet -- one TEXT column now beats a migration later. Do not build an RBAC layer
+    on top of it (build-spec §7).
     """
 
     __tablename__ = "memberships"
@@ -194,7 +191,7 @@ class Outcome(Base):
     __tablename__ = "outcomes"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
-    workspace_id: Mapped[str | None] = mapped_column(ForeignKey("workspaces.id"))
+    product_id: Mapped[str | None] = mapped_column(ForeignKey("products.id"))
     type: Mapped[str] = mapped_column(Text, nullable=False)  # issue|policy|document|meeting|question
     session_id: Mapped[str | None] = mapped_column(ForeignKey("sessions.id"))
     payload: Mapped[str] = mapped_column(Text, nullable=False, default="{}")  # JSON

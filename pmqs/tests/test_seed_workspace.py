@@ -1,4 +1,4 @@
-"""Tests for the initial seed lens pass on new Workspace creation (issue #54)."""
+"""Tests for the initial seed lens pass on new Product creation (issue #54)."""
 import os
 
 os.environ["PMQS_LLM_MODE"] = "off"
@@ -46,28 +46,25 @@ _STATE_WITH_STALE_ISSUE = {
 }
 
 
-def test_seed_workspace_persists_questions_scoped_to_workspace(db, monkeypatch):
+def test_seed_workspace_persists_questions_scoped_to_product(db, monkeypatch):
     product = products.get_or_create_product(db, org="acme", repo="widgets")
-    workspace = products.create_workspace(db, product=product)
 
     monkeypatch.setattr(
         "pmqs.agentos_client.AgentOSClient.get_state",
         lambda self: _STATE_WITH_STALE_ISSUE,
     )
 
-    questions = pipeline.seed_workspace(db, workspace)
+    questions = pipeline.seed_workspace(db, product)
 
     assert len(questions) >= 1
-    assert all(q.workspace_id == workspace.id for q in questions)
-    # Doesn't leak into a different workspace's inbox.
+    assert all(q.product_id == product.id for q in questions)
+    # Doesn't leak into a different product's inbox.
     other_product = products.get_or_create_product(db, org="acme", repo="gizmos")
-    other_workspace = products.create_workspace(db, product=other_product)
-    assert repository.list_questions(db, workspace_id=other_workspace.id) == []
+    assert repository.list_questions(db, product_id=other_product.id) == []
 
 
 def test_seed_workspace_uses_the_products_own_repo(db, monkeypatch):
     product = products.get_or_create_product(db, org="acme", repo="widgets")
-    workspace = products.create_workspace(db, product=product)
 
     seen_repos = []
 
@@ -76,18 +73,17 @@ def test_seed_workspace_uses_the_products_own_repo(db, monkeypatch):
         return {"issues": [], "labels": []}
 
     monkeypatch.setattr("pmqs.agentos_client.AgentOSClient.get_state", fake_get_state)
-    pipeline.seed_workspace(db, workspace)
+    pipeline.seed_workspace(db, product)
 
     assert seen_repos == ["acme/widgets"]
 
 
 def test_seed_workspace_returns_empty_on_fetch_failure(db, monkeypatch):
     product = products.get_or_create_product(db, org="acme", repo="widgets")
-    workspace = products.create_workspace(db, product=product)
 
     def raise_error(self):
         raise AgentOSClientError("boom")
 
     monkeypatch.setattr("pmqs.agentos_client.AgentOSClient.get_state", raise_error)
 
-    assert pipeline.seed_workspace(db, workspace) == []
+    assert pipeline.seed_workspace(db, product) == []

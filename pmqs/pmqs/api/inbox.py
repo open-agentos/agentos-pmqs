@@ -1,10 +1,14 @@
 """api/inbox.py — FastAPI routes: list/score/filter/quick-add + Inbox render.
 
-Mounted twice by api/app.py (see #56): once unprefixed (legacy, no workspace
+Mounted twice by api/app.py (see #56): once unprefixed (legacy, no product
 filter -- every route here accepts workspace_slug=None and behaves exactly as
-before) and once under /w/{workspace_slug}/... (resolves to that Workspace's own
+before) and once under /w/{workspace_slug}/... (resolves to that Product's own
 Questions/repo). Same handlers serve both; `workspace_slug` is a path param in the
 scoped mount and simply absent (defaulting to None) in the legacy one.
+
+Note: the URL segment stays `workspace_slug` / `/w/{workspace_slug}/...` -- that's
+the route-naming call for item 5 (session -> workspace rename), not this item.
+Underneath, it resolves to a Product (see products.resolve_product_id).
 
 GET  /[w/{slug}/]                       -> Inbox HTML (persisted questions, ranked)
 POST /[w/{slug}/]refresh                -> run trigger pipeline against live AgentOS state
@@ -34,14 +38,11 @@ def _base(workspace_slug: str | None) -> str:
 
 
 def _repo_for(db: OrmSession, workspace_slug: str | None) -> str | None:
-    """The repo a scoped workspace's AgentOSClient calls should target. None (i.e. fall
+    """The repo a scoped product's AgentOSClient calls should target. None (i.e. fall
     back to config.AGENTOS_REPO) for the legacy unprefixed mount."""
     if workspace_slug is None:
         return None
-    ws = products.get_workspace_by_slug(db, workspace_slug)
-    if ws is None:
-        return None
-    product = products.get_product(db, ws.product_id)
+    product = products.get_product_by_slug(db, workspace_slug)
     return product.full_name if product else None
 
 
@@ -56,12 +57,12 @@ def index(
     db: OrmSession = Depends(get_session),
 ):
     try:
-        workspace_id = products.resolve_workspace_id(db, workspace_slug)
+        product_id = products.resolve_product_id(db, workspace_slug)
     except KeyError:
         return HTMLResponse(render_error(f"No such product workspace: {workspace_slug}", 404), status_code=404)
     # Canonical Inbox = persisted questions (proposed + saved), ranked. No silent swap to
     # a live-GitHub view — an empty store shows an explicit empty-state (see render_inbox).
-    questions = repository.list_questions(db, lens_tag=lens, source=source, workspace_id=workspace_id)
+    questions = repository.list_questions(db, lens_tag=lens, source=source, product_id=product_id)
     return HTMLResponse(render_inbox(questions, flash=news, refreshed=refreshed, db=db, workspace_slug=workspace_slug))
 
 
@@ -69,14 +70,14 @@ def index(
 @router.post("/w/{workspace_slug}/refresh")
 def refresh(workspace_slug: str | None = None, db: OrmSession = Depends(get_session)):
     try:
-        workspace_id = products.resolve_workspace_id(db, workspace_slug)
+        product_id = products.resolve_product_id(db, workspace_slug)
     except KeyError:
         return HTMLResponse(render_error(f"No such product workspace: {workspace_slug}", 404), status_code=404)
     repo = _repo_for(db, workspace_slug)
     # Pull questions from the repo via the structural-trigger pipeline, then show the Inbox
     # with a banner reporting how many were generated (0 is a valid, explained result).
     state = AgentOSClient(repo=repo).get_state() if repo else AgentOSClient().get_state()
-    generated = generate(db, state, workspace_id=workspace_id)
+    generated = generate(db, state, product_id=product_id)
     return RedirectResponse(url=f"{_base(workspace_slug)}/?refreshed={len(generated)}", status_code=303)
 
 
@@ -89,12 +90,12 @@ def quick_add(
     db: OrmSession = Depends(get_session),
 ):
     try:
-        workspace_id = products.resolve_workspace_id(db, workspace_slug)
+        product_id = products.resolve_product_id(db, workspace_slug)
     except KeyError:
         return HTMLResponse(render_error(f"No such product workspace: {workspace_slug}", 404), status_code=404)
     lens_tags = [lens] if lens else []
     q = repository.create_question(
-        db, title=title, source="pm", lens_tags=lens_tags, status="proposed", workspace_id=workspace_id
+        db, title=title, source="pm", lens_tags=lens_tags, status="proposed", product_id=product_id
     )
     score, dims = scoring.score_question(q)
     repository.set_question_score(db, q.id, score, dims)
@@ -107,11 +108,11 @@ def set_status(qid: str, workspace_slug: str | None = None, status: str = Form(.
     # Resolve pseudo-ids (issue:<n>) to a real persisted Question first (B3), so the
     # Save/Dismiss buttons work even on a fresh live-read Inbox.
     try:
-        workspace_id = products.resolve_workspace_id(db, workspace_slug)
+        product_id = products.resolve_product_id(db, workspace_slug)
     except KeyError:
         return JSONResponse({"error": "not found"}, status_code=404)
     repo = _repo_for(db, workspace_slug)
-    real_id = resolve_question_id(db, qid, repo=repo, workspace_id=workspace_id)
+    real_id = resolve_question_id(db, qid, repo=repo, product_id=product_id)
     if real_id is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     repository.update_question_status(db, real_id, status)
@@ -128,10 +129,10 @@ def api_questions(
     db: OrmSession = Depends(get_session),
 ):
     try:
-        workspace_id = products.resolve_workspace_id(db, workspace_slug)
+        product_id = products.resolve_product_id(db, workspace_slug)
     except KeyError:
         return JSONResponse({"error": "not found"}, status_code=404)
-    qs = repository.list_questions(db, lens_tag=lens, include_all=include_all, workspace_id=workspace_id)
+    qs = repository.list_questions(db, lens_tag=lens, include_all=include_all, product_id=product_id)
     return JSONResponse(
         [
             {

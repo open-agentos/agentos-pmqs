@@ -22,10 +22,7 @@ router = APIRouter()
 def _repo_for(db: OrmSession, workspace_slug: str | None) -> str | None:
     if workspace_slug is None:
         return None
-    ws = products.get_workspace_by_slug(db, workspace_slug)
-    if ws is None:
-        return None
-    product = products.get_product(db, ws.product_id)
+    product = products.get_product_by_slug(db, workspace_slug)
     return product.full_name if product else None
 
 
@@ -51,14 +48,14 @@ def open_workspace(
     db: OrmSession = Depends(get_session),
 ):
     try:
-        workspace_id = products.resolve_workspace_id(db, workspace_slug)
+        product_id = products.resolve_product_id(db, workspace_slug)
     except KeyError:
         return HTMLResponse(render_error(f"No such product workspace: {workspace_slug}", 404), status_code=404)
     repo = _repo_for(db, workspace_slug)
     prefix = f"/w/{workspace_slug}" if workspace_slug else ""
 
     # Resolve pseudo-ids (issue:<n>) to a real Question (shared helper).
-    qid = resolve_question_id(db, question_id, repo=repo, workspace_id=workspace_id) if question_id else None
+    qid = resolve_question_id(db, question_id, repo=repo, product_id=product_id) if question_id else None
 
     # B0b: reuse the existing open session for this question so its Position Doc and
     # conversation persist across visits — don't spawn a fresh empty session each time.
@@ -71,7 +68,7 @@ def open_workspace(
     if qid:
         q = repository.get_question(db, qid)
         topic = q.title if q else None
-    sess = repository.open_session(db, topic=topic, question_id=qid, workspace_id=workspace_id)
+    sess = repository.open_session(db, topic=topic, question_id=qid, product_id=product_id)
     return RedirectResponse(url=f"{prefix}/workspace/{sess.id}", status_code=303)
 
 
@@ -81,7 +78,7 @@ def workspace_view(session_id: str, db: OrmSession = Depends(get_session)):
     if sess is None:
         return HTMLResponse(render_error("War-room session not found.", 404), status_code=404)
     doc = json.loads(sess.position_doc) if sess.position_doc else None
-    ws = products.get_workspace(db, sess.workspace_id) if sess.workspace_id else None
+    product = products.get_product(db, sess.product_id) if sess.product_id else None
     return HTMLResponse(
         render_workspace(
             sess,
@@ -90,7 +87,7 @@ def workspace_view(session_id: str, db: OrmSession = Depends(get_session)):
             _proposed_for(db, sess),
             doc,
             db=db,
-            workspace_slug=ws.slug if ws else None,
+            workspace_slug=product.slug if product else None,
         )
     )
 

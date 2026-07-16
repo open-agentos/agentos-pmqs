@@ -1,4 +1,7 @@
-"""Tests for the Product/Workspace multi-product model (issue #51)."""
+"""Tests for the Product model (issue #51, folded per Shared Outcomes build-spec
+§8 step 2 -- workspace's slug/nickname/lens_weights/archived now live on Product
+directly; Membership is the peer-sharing mechanism, not a second per-tenant row).
+"""
 import os
 
 os.environ["PMQS_LLM_MODE"] = "off"
@@ -8,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from pmqs import products
+from pmqs import members, products
 from pmqs.db import Base
 
 
@@ -41,42 +44,54 @@ def test_get_or_create_product_dedupes_by_org_repo(db):
     assert p1.full_name == "open-agentos/agentos"
 
 
-def test_two_workspaces_can_share_one_product(db):
-    # Two "different PMs" (simulated via distinct account_id) adding the same repo
-    # share the Product row but get separate Workspaces.
+def test_two_members_can_share_one_product_via_membership(db):
+    # Two PMs adding the same repo resolve to ONE Product row; sharing across them is
+    # via Membership rows (not via separate Product rows per-PM, the pre-fold model).
     product = products.get_or_create_product(db, org="open-agentos", repo="agentos")
-    ws_a = products.create_workspace(db, product=product, account_id="pm-a")
-    ws_b = products.create_workspace(db, product=product, account_id="pm-b")
+    member_a = members.get_or_create_default_member(db)
+    membership_a = members.ensure_membership(db, member=member_a, product=product, role="owner")
 
-    assert ws_a.product_id == ws_b.product_id == product.id
-    assert ws_a.id != ws_b.id
-    assert ws_a.slug != ws_b.slug  # disambiguated even though both derive from "agentos"
+    assert membership_a.product_id == product.id
+    # A second membership on the same product (simulating a peer joining) shares the
+    # Product row, not a second copy of it.
+    from pmqs.models import Member
 
-
-def test_list_workspaces_scoped_to_account(db):
-    product = products.get_or_create_product(db, org="open-agentos", repo="agentos-pmqs")
-    products.create_workspace(db, product=product, account_id="pm-a")
-    products.create_workspace(db, product=product, account_id="pm-b")
-
-    assert len(products.list_workspaces(db, account_id="pm-a")) == 1
-    assert len(products.list_workspaces(db, account_id="pm-b")) == 1
-
-
-def test_get_or_create_default_workspace_seeds_from_config(db):
-    ws = products.get_or_create_default_workspace(db)
-    product = products.get_product(db, ws.product_id)
-    assert product is not None
-    assert product.full_name  # non-empty org/repo derived from config.AGENTOS_REPO
-
-    # Idempotent: calling again returns the same workspace rather than creating another.
-    ws2 = products.get_or_create_default_workspace(db)
-    assert ws.id == ws2.id
+    member_b = Member(display_name="Peer PM")
+    db.add(member_b)
+    db.commit()
+    membership_b = members.ensure_membership(db, member=member_b, product=product, role="member")
+    assert membership_b.product_id == membership_a.product_id
+    assert membership_a.member_id != membership_b.member_id
 
 
-def test_workspace_display_name_prefers_nickname(db):
+def test_list_products_returns_created_products(db):
+    products.get_or_create_product(db, org="open-agentos", repo="agentos-pmqs")
+    products.get_or_create_product(db, org="open-agentos", repo="agentos")
+
+    assert len(products.list_products(db)) == 2
+
+
+def test_get_or_create_default_product_seeds_from_config(db):
+    p = products.get_or_create_default_product(db)
+    assert p is not None
+    assert p.full_name  # non-empty org/repo derived from config.AGENTOS_REPO
+
+    # Idempotent: calling again returns the same product rather than creating another.
+    p2 = products.get_or_create_default_product(db)
+    assert p.id == p2.id
+
+
+def test_product_display_name_prefers_nickname(db):
     product = products.get_or_create_product(db, org="open-agentos", repo="agentos", display_name="AgentOS")
-    ws = products.create_workspace(db, product=product, nickname="My Core Product")
-    assert products.workspace_display_name(db, ws) == "My Core Product"
+    assert products.product_display_name(db, product) == "AgentOS"
 
-    ws2 = products.create_workspace(db, product=product)
-    assert products.workspace_display_name(db, ws2) == "AgentOS"
+    product2 = products.get_or_create_product(
+        db, org="open-agentos", repo="agentos-pmqs", nickname="My Core Product"
+    )
+    assert products.product_display_name(db, product2) == "My Core Product"
+
+
+def test_new_product_gets_a_unique_slug(db):
+    p1 = products.get_or_create_product(db, org="open-agentos", repo="agentos")
+    p2 = products.get_or_create_product(db, org="acme", repo="agentos")  # same basename
+    assert p1.slug != p2.slug

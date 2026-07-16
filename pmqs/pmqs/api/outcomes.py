@@ -3,7 +3,7 @@
 The ledger routes (GET /outcomes, GET /api/outcomes) support both the legacy
 unprefixed mount and /w/{workspace_slug}/... (see #56), same pattern as
 api/inbox.py. Routes keyed by session_id or outcome_id don't need a slug in the
-path -- the Session already carries its own workspace_id from creation (#52), so
+path -- the Session already carries its own product_id from creation (#52), so
 outcomes created against it inherit that scoping automatically.
 """
 from __future__ import annotations
@@ -31,17 +31,17 @@ router = APIRouter()
 @router.get("/w/{workspace_slug}/outcomes", response_class=HTMLResponse)
 def outcomes_page(workspace_slug: str | None = None, db: OrmSession = Depends(get_session)):
     try:
-        workspace_id = products.resolve_workspace_id(db, workspace_slug)
+        product_id = products.resolve_product_id(db, workspace_slug)
     except KeyError:
         return HTMLResponse(render_error(f"No such product workspace: {workspace_slug}", 404), status_code=404)
-    return HTMLResponse(render_outcomes(db, workspace_id=workspace_id, workspace_slug=workspace_slug))
+    return HTMLResponse(render_outcomes(db, product_id=product_id, workspace_slug=workspace_slug))
 
 
 @router.get("/api/outcomes")
 @router.get("/w/{workspace_slug}/api/outcomes")
 def list_outcomes(workspace_slug: str | None = None, db: OrmSession = Depends(get_session)):
     try:
-        workspace_id = products.resolve_workspace_id(db, workspace_slug)
+        product_id = products.resolve_product_id(db, workspace_slug)
     except KeyError:
         return JSONResponse({"error": "not found"}, status_code=404)
     return JSONResponse(
@@ -52,7 +52,7 @@ def list_outcomes(workspace_slug: str | None = None, db: OrmSession = Depends(ge
                 "github_ref": o.github_ref,
                 "created_at": o.created_at,
             }
-            for o in repository.list_outcomes(db, workspace_id=workspace_id)
+            for o in repository.list_outcomes(db, product_id=product_id)
         ]
     )
 
@@ -84,7 +84,7 @@ def create_typed_outcome(
     db: OrmSession = Depends(get_session),
 ):
     session = repository.get_session_row(db, session_id)
-    workspace_id = session.workspace_id if session is not None else None
+    product_id = session.product_id if session is not None else None
 
     if type == "issue":
         # Promote to real GitHub. Prefer a linked Question if provided.
@@ -93,7 +93,7 @@ def create_typed_outcome(
             # Create an ad-hoc Question from the session summary so the push path is uniform.
             q = repository.create_question(
                 db, title=title or "War-room issue", source="pm", description=body,
-                workspace_id=workspace_id,
+                product_id=product_id,
             )
         result = push_question_to_issue(db, q, session_id=session_id)
         return JSONResponse({"type": "issue", **result})
@@ -119,7 +119,7 @@ def create_typed_outcome(
         payload=payload,
         session_id=session_id,
         github_ref=None,  # hosted-store only; policy can never be pushed
-        workspace_id=workspace_id,
+        product_id=product_id,
     )
     return JSONResponse({"type": type, "outcome_id": outcome.id, "github_ref": None})
 
