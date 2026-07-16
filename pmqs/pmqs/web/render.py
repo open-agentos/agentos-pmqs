@@ -23,47 +23,71 @@ from pmqs.web import logo
 # --- Live wiring JS: injected into rendered pages so the template's buttons call the
 # real backend endpoints instead of the demo's client-side stubs. Uses classic form
 # POSTs (303 redirects) to match the server routes; no fetch/JSON needed. ---
-_LIVE_JS_COMMON = """
+def _live_js_common(prefix: str = "") -> str:
+    """`prefix` (#56) is '' for the legacy unprefixed mount or '/w/{slug}' for a
+    workspace-scoped page -- every action URL below is built against it so
+    Save/Dismiss/War-room/nav clicks stay inside whichever workspace is being viewed."""
+    return f"""
 <script>
 // PMQs live wiring (injected by render.py) — overrides the template's demo handlers.
-function pmqsPost(action, fields){
+function pmqsPost(action, fields){{
   const f = document.createElement('form');
   f.method = 'POST'; f.action = action;
-  for (const k in (fields||{})){
+  for (const k in (fields||{{}})){{
     const i = document.createElement('input');
     i.type = 'hidden'; i.name = k; i.value = fields[k];
     f.appendChild(i);
-  }
+  }}
   document.body.appendChild(f); f.submit();
-}
-function pmqsOpenWorkspace(qid){ pmqsPost('/workspace/open', {question_id: qid || ''}); }
-function pmqsSetStatus(qid, status){ pmqsPost('/questions/'+qid+'/status', {status: status}); }
+}}
+function pmqsOpenWorkspace(qid){{ pmqsPost('{prefix}/workspace/open', {{question_id: qid || ''}}); }}
+function pmqsSetStatus(qid, status){{ pmqsPost('{prefix}/questions/'+qid+'/status', {{status: status}}); }}
+// Product switcher (#55): quiet open/close, no framework -- toggle a class, close on
+// outside click or Escape. The menu's *content* (workspace list, current name) is
+// server-rendered by render.py; this just controls visibility.
+function pmqsToggleSwitcher(e){{
+  if (e) e.stopPropagation();
+  var el = document.getElementById('product-switcher');
+  if (el) el.classList.toggle('open');
+}}
+document.addEventListener('click', function(e){{
+  var el = document.getElementById('product-switcher');
+  if (el && el.classList.contains('open') && !el.contains(e.target)) el.classList.remove('open');
+}});
+document.addEventListener('keydown', function(e){{
+  if (e.key === 'Escape') {{
+    var el = document.getElementById('product-switcher');
+    if (el) el.classList.remove('open');
+  }}
+}});
 // Make the top-nav Outcomes item load the real ledger page.
-document.addEventListener('DOMContentLoaded', function(){
+document.addEventListener('DOMContentLoaded', function(){{
   var nav = document.querySelector('.nav-item[data-nav="outcomes"]');
-  if (nav) nav.addEventListener('click', function(e){
+  if (nav) nav.addEventListener('click', function(e){{
     e.stopImmediatePropagation();
-    window.location.href = '/outcomes';
-  }, true);
+    window.location.href = '{prefix}/outcomes';
+  }}, true);
   var inboxNav = document.querySelector('.nav-item[data-nav="inbox"]');
-  if (inboxNav) inboxNav.addEventListener('click', function(){ window.location.href = '/'; }, true);
+  if (inboxNav) inboxNav.addEventListener('click', function(){{ window.location.href = '{prefix}/'; }}, true);
   // Phase 4: add a Settings link to the left rail (template has no way to reach /settings).
+  // Settings stays account-wide (not workspace-scoped), so this one is deliberately
+  // NOT prefixed even on a /w/{{slug}}/ page.
   var rail = document.querySelector('.rail-spacer') || document.querySelector('.nav-item');
-  if (rail && !document.getElementById('pmqs-settings-nav')) {
+  if (rail && !document.getElementById('pmqs-settings-nav')) {{
     var s = document.createElement('div');
     s.className = 'nav-item';
     s.id = 'pmqs-settings-nav';
     s.textContent = 'Settings';
     s.style.cursor = 'pointer';
-    s.addEventListener('click', function(){ window.location.href = '/settings'; });
+    s.addEventListener('click', function(){{ window.location.href = '/settings'; }});
     // insert before the rail spacer if present, else after the last nav-item
-    if (rail.classList && rail.classList.contains('rail-spacer')) {
+    if (rail.classList && rail.classList.contains('rail-spacer')) {{
       rail.parentNode.insertBefore(s, rail);
-    } else {
+    }} else {{
       rail.parentNode.appendChild(s);
-    }
-  }
-});
+    }}
+  }}
+}});
 </script>
 """
 
@@ -90,6 +114,50 @@ display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
 # TEMPLATE-CONTRACT.md. Every render path loads through _load_template() so the
 # splice happens exactly once, in one place.
 _LOGO_MARK_SENTINEL = "<!-- LOGO MARK -->"
+
+# Product switcher (#55): current-name text + the workspace-list region between the
+# comment sentinels. Kept as its own small anchor pair rather than folded into the
+# logo lockup splice, since it's spliced identically from three different render_*
+# entry points (Inbox/Workspace/Outcomes) via _apply_product_switcher below.
+_PS_CURRENT_RE = re.compile(
+    r'(<div class="ps-current" id="ps-current" onclick="pmqsToggleSwitcher\(event\)">)(.*?)(<span class="ps-chevron">)',
+    re.DOTALL,
+)
+_PS_ITEMS_RE = re.compile(
+    r"(<!-- PRODUCT SWITCHER ITEMS -->)(.*?)(<!-- /PRODUCT SWITCHER ITEMS -->)", re.DOTALL
+)
+
+
+def _apply_product_switcher(src: str, db: Any, workspace_slug: str | None) -> str:
+    """Splice the current product name + the list of the account's other workspaces
+    into the switcher markup. Safe to call even if the switcher markup isn't present
+    (e.g. an older template) -- a 0-match splice is a silent no-op, not a crash, since
+    unlike the load-bearing anchors in TEMPLATE-CONTRACT.md this one degrades to the
+    static fixture rather than breaking the page.
+    """
+    from pmqs import products
+
+    workspaces = products.list_workspaces(db)
+    if not workspaces:
+        return src  # nothing to show yet (e.g. DB not initialised in this render path)
+
+    current = None
+    if workspace_slug is not None:
+        current = next((w for w in workspaces if w.slug == workspace_slug), None)
+    if current is None:
+        current = workspaces[0]  # legacy unprefixed view -> account's default workspace
+
+    current_name = html.escape(products.workspace_display_name(db, current))
+    src = _PS_CURRENT_RE.sub(lambda m: f"{m.group(1)}\n            {current_name} {m.group(3)}", src, count=1)
+
+    items = []
+    for ws in workspaces:
+        name = html.escape(products.workspace_display_name(db, ws))
+        cls = "ps-item current" if ws.id == current.id else "ps-item"
+        items.append(f'<a class="{cls}" href="/w/{ws.slug}/">{name}</a>')
+    items_html = "\n            ".join(items)
+    src = _PS_ITEMS_RE.sub(lambda m: f"{m.group(1)}\n            {items_html}\n            {m.group(3)}", src, count=1)
+    return src
 
 
 def _load_template(template_path=None) -> str:
@@ -166,13 +234,19 @@ def question_card_html(q: Any) -> str:
 
 
 def render_inbox(questions: list[Any], template_path: Path | None = None,
-                 flash: str | None = None, refreshed: str | None = None) -> str:
+                 flash: str | None = None, refreshed: str | None = None,
+                 db: Any = None, workspace_slug: str | None = None) -> str:
     """Return the full app HTML with Inbox fixture cards replaced by real ones.
 
     `flash` (optional): 'none' or an integer N — news-ingest banner.
     `refreshed` (optional): integer N — repo-refresh banner ("Pulled N from the repo").
+    `db`/`workspace_slug` (optional, #55/#56): when given, splices the Product switcher
+    (current name + other workspaces) and makes quick-add/refresh/filter actions target
+    this workspace's own /w/{slug}/... routes instead of the legacy unprefixed ones.
     """
     src = _load_template(template_path)
+    if db is not None:
+        src = _apply_product_switcher(src, db, workspace_slug)
 
     banner = _flash_banner(flash) + _refresh_banner(refreshed)
     if questions:
@@ -213,31 +287,32 @@ def render_inbox(questions: list[Any], template_path: Path | None = None,
 
     # Wire quick-add + card clicks to real endpoints (override template demo JS).
     # Also force the Inbox view active on load so no war-room/workspace header bleeds in.
-    inbox_js = _LIVE_JS_COMMON + """
+    _prefix = f"/w/{workspace_slug}" if workspace_slug else ""
+    inbox_js = _live_js_common(_prefix) + f"""
 <script>
 // Override quick-add to create a real PM question server-side.
-function addQuestion(){
+function addQuestion(){{
   var input = document.getElementById('quick-add-input');
   var val = (input && input.value || '').trim();
   if(!val) return;
-  pmqsPost('/quick-add', {title: val});
-}
-function pmqsRefresh(){ pmqsPost('/refresh', {}); }
+  pmqsPost('{_prefix}/quick-add', {{title: val}});
+}}
+function pmqsRefresh(){{ pmqsPost('{_prefix}/refresh', {{}}); }}
 // The home page is always the Inbox — never leave another view active.
-document.addEventListener('DOMContentLoaded', function(){
+document.addEventListener('DOMContentLoaded', function(){{
   if (typeof showView === 'function') showView('inbox');
   // H2: wire filter pills to server-side filtering (?source=).
-  var map = {all: '/', asked: '/?source=pm', system: '/?source=system'};
-  document.querySelectorAll('.filter-pill').forEach(function(p){
+  var map = {{all: '{_prefix}/', asked: '{_prefix}/?source=pm', system: '{_prefix}/?source=system'}};
+  document.querySelectorAll('.filter-pill').forEach(function(p){{
     var f = p.getAttribute('data-filter');
-    if (map[f] !== undefined) {
-      p.addEventListener('click', function(e){
+    if (map[f] !== undefined) {{
+      p.addEventListener('click', function(e){{
         e.stopImmediatePropagation();
         window.location.href = map[f];
-      }, true);
-    }
-  });
-});
+      }}, true);
+    }}
+  }});
+}});
 </script>
 """
     return _inject_before_body_close(new_src, inbox_js)
@@ -404,13 +479,19 @@ def render_workspace(
     proposed: list[Any],
     position_doc: dict | None,
     template_path: Path | None = None,
+    db: Any = None,
+    workspace_slug: str | None = None,
 ) -> str:
     """Splice real war-room session data into the template's Workspace view.
 
     Preserves all CSS/JS and the Inbox/Outcomes views. Replaces: ws-title, conversation
     messages, position-doc tab, evidence tab, proposed-questions tab, and session stats.
+    `db`/`workspace_slug` (#55): splices the Product switcher so it shows which product
+    this session belongs to, same as Inbox/Outcomes.
     """
     src = _load_template(template_path)
+    if db is not None:
+        src = _apply_product_switcher(src, db, workspace_slug)
 
     title = html.escape(session.topic or "War-room session")
     convo = "\n".join(_msg_html(m) for m in messages) or (
@@ -434,7 +515,7 @@ def render_workspace(
     # Inject session-aware live wiring: override the template's demo handlers so the
     # war-room buttons hit real endpoints for THIS session.
     sid = session.id
-    ws_js = _LIVE_JS_COMMON + f"""
+    ws_js = _live_js_common() + f"""
 <script>
 var PMQS_SID = {sid!r};
 // Send a chat message to the real war-room endpoint (LLM probe reply).
@@ -497,17 +578,21 @@ def _ledger_item_html(o: Any, payload: dict) -> str:
     )
 
 
-def render_outcomes(db: Any, template_path: Path | None = None, *, workspace_id: str | None = None) -> str:
+def render_outcomes(db: Any, template_path: Path | None = None, *, workspace_id: str | None = None,
+                    workspace_slug: str | None = None) -> str:
     """Splice real outcome rows + summary counts into the template's Outcomes view.
 
     Mirrors the Inbox wiring: replace the static ledger fixtures and the summary-strip
     numbers with real data. Inbox/Workspace views preserved. `workspace_id` scopes the
     ledger to one product (see #56); omitted, it shows every workspace's outcomes --
-    the pre-multi-product behaviour existing callers still rely on.
+    the pre-multi-product behaviour existing callers still rely on. `workspace_slug`
+    (#55) drives the Product switcher and keeps the Inbox-nav link inside the same
+    workspace.
     """
     from pmqs import repository
 
     src = _load_template(template_path)
+    src = _apply_product_switcher(src, db, workspace_slug)
     outcomes = repository.list_outcomes(db, workspace_id=workspace_id)
     # newest first by created_at
     outcomes = sorted(outcomes, key=lambda o: getattr(o, "created_at", ""), reverse=True)
@@ -534,7 +619,8 @@ def render_outcomes(db: Any, template_path: Path | None = None, *, workspace_id:
             lambda m, _c=c: f"{m.group(1)}{_c}{m.group(2)}",
             new_src,
         )
-    outcomes_js = _LIVE_JS_COMMON + """
+    _prefix = f"/w/{workspace_slug}" if workspace_slug else ""
+    outcomes_js = _live_js_common(_prefix) + """
 <script>
 document.addEventListener('DOMContentLoaded', function(){
   if (typeof showView === 'function') showView('outcomes');

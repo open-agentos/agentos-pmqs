@@ -34,7 +34,7 @@ def outcomes_page(workspace_slug: str | None = None, db: OrmSession = Depends(ge
         workspace_id = products.resolve_workspace_id(db, workspace_slug)
     except KeyError:
         return HTMLResponse(render_error(f"No such product workspace: {workspace_slug}", 404), status_code=404)
-    return HTMLResponse(render_outcomes(db, workspace_id=workspace_id))
+    return HTMLResponse(render_outcomes(db, workspace_id=workspace_id, workspace_slug=workspace_slug))
 
 
 @router.get("/api/outcomes")

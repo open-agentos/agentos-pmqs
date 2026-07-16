@@ -81,6 +81,7 @@ def workspace_view(session_id: str, db: OrmSession = Depends(get_session)):
     if sess is None:
         return HTMLResponse(render_error("War-room session not found.", 404), status_code=404)
     doc = json.loads(sess.position_doc) if sess.position_doc else None
+    ws = products.get_workspace(db, sess.workspace_id) if sess.workspace_id else None
     return HTMLResponse(
         render_workspace(
             sess,
@@ -88,6 +89,8 @@ def workspace_view(session_id: str, db: OrmSession = Depends(get_session)):
             _evidence_for(db, sess),
             _proposed_for(db, sess),
             doc,
+            db=db,
+            workspace_slug=ws.slug if ws else None,
         )
     )
 
