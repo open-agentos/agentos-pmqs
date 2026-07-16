@@ -466,7 +466,33 @@ def _position_doc_html(doc: dict | None) -> str:
         + f'<div class="doc-text">{html.escape(str(doc.get("argument_against", "")))}</div>'
         + '<div class="doc-label">Rebuttal</div>'
         + f'<div class="doc-text">{html.escape(str(doc.get("rebuttal_against", "")))}</div></div>'
-        + "</div></div>"
+        + "</div>"
+        + _prior_decisions_html(doc.get("prior_decisions") or [])
+        + "</div>"
+    )
+
+
+def _prior_decisions_html(cites: list) -> str:
+    """The [prior N] citations the doc's text refers to, with author and date.
+
+    Item 10's acceptance is that prior decisions "appear cited with author and date" --
+    an inline [prior 0] with nothing to resolve it against is not a citation. Reuses
+    .doc-section/.doc-label/.doc-text and --text-muted; no new colour token, so the §11
+    brand drift guards stay green.
+    """
+    if not cites:
+        return ""
+    rows = "".join(
+        f'<div class="ledger-src">[prior {html.escape(str(c.get("ref")))}] '
+        f'{html.escape(str(c.get("type", "")))} — decided by '
+        f'{html.escape(str(c.get("author", "Unknown")))} on '
+        f'{html.escape(str(c.get("date", "")))}: '
+        f'{html.escape(str(c.get("text", ""))[:200])}</div>'
+        for c in cites
+    )
+    return (
+        '<div class="doc-section"><div class="doc-label">Prior decisions cited</div>'
+        f'<div class="doc-text">{rows}</div></div>'
     )
 
 
