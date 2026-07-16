@@ -162,6 +162,34 @@ class Workspace(Base):
         return json.loads(self.lens_weights or "{}")
 
 
+class Member(Base):
+    """A human PM. Real identity attaches at Phase 5 auth via `external_subject`;
+    until then every account has exactly one stub Member (see products.py backfill).
+    """
+
+    __tablename__ = "members"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
+    display_name: Mapped[str] = mapped_column(Text, nullable=False)
+    external_subject: Mapped[str | None] = mapped_column(Text)  # dormant until Phase 5 auth
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
+
+
+class Membership(Base):
+    """A Member's attachment to a Product (§3: membership attaches at the Product level).
+
+    role ships with no behaviour behind it yet -- one TEXT column now beats a
+    migration later. Do not build an RBAC layer on top of it (build-spec §7).
+    """
+
+    __tablename__ = "memberships"
+
+    member_id: Mapped[str] = mapped_column(ForeignKey("members.id"), primary_key=True)
+    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), primary_key=True)
+    role: Mapped[str] = mapped_column(Text, nullable=False, default="member")  # 'owner' | 'member'
+    created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
+
+
 class Outcome(Base):
     __tablename__ = "outcomes"
 
