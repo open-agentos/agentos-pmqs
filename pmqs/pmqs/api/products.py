@@ -38,10 +38,11 @@ def add_product(
     product = products.get_or_create_product(db, org=org, repo=repo_name, display_name=repo_name)
     workspace = products.create_workspace(db, product=product, nickname=nickname or None)
 
-    # Note: this doesn't yet trigger an immediate seed lens pass for the new workspace
-    # -- that's #54, landing as a follow-up PR so this one stays scoped to resolve-or-
-    # create + Workspace creation. Until #54 merges, a fresh workspace's inbox stays
-    # empty until the next scheduled daily batch.
+    # Seed the new workspace's inbox immediately rather than waiting for tomorrow's
+    # scheduled batch (#54).
+    from pmqs.pipeline import seed_workspace
+
+    seed_workspace(db, workspace)
 
     # Workspace-scoped navigation (/w/{slug}/...) lands in #56; for now land back on
     # the existing single Inbox view. A proper "Product added" confirmation belongs
