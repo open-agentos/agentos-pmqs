@@ -62,7 +62,7 @@ def index(
     # Canonical Inbox = persisted questions (proposed + saved), ranked. No silent swap to
     # a live-GitHub view — an empty store shows an explicit empty-state (see render_inbox).
     questions = repository.list_questions(db, lens_tag=lens, source=source, workspace_id=workspace_id)
-    return HTMLResponse(render_inbox(questions, flash=news, refreshed=refreshed))
+    return HTMLResponse(render_inbox(questions, flash=news, refreshed=refreshed, db=db, workspace_slug=workspace_slug))
 
 
 @router.post("/refresh")

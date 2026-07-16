@@ -81,6 +81,41 @@ h1,h2,h3,.serif{font-family:var(--font-doc);}
 .logo-text{min-width:0;}
 .logo{font-family:var(--font-display);font-size:20px;font-weight:700;letter-spacing:-0.01em;color:var(--text-primary);margin-bottom:2px;}
 .logo-sub{font-size:11px;color:var(--text-muted);letter-spacing:0.04em;}
+/* Product switcher (#55): same quiet register as .logo-sub, not a loud control --
+   text + a small chevron, no card/color-block. Opens a short, plain dropdown. */
+.product-switcher{position:relative;}
+.ps-current{
+  font-size:11px;color:var(--text-muted);letter-spacing:0.04em;cursor:pointer;
+  display:flex;align-items:center;gap:4px;user-select:none;
+}
+.ps-current:hover{color:var(--text-secondary);}
+.ps-chevron{font-size:9px;opacity:.7;transition:transform .12s;}
+.product-switcher.open .ps-chevron{transform:rotate(180deg);}
+.ps-menu{
+  display:none;position:absolute;top:18px;left:0;min-width:180px;z-index:20;
+  background:var(--bg-surface);border:1px solid var(--border-default);border-radius:6px;
+  box-shadow:0 4px 14px rgba(0,0,0,.25);padding:4px;
+}
+.product-switcher.open .ps-menu{display:block;}
+.ps-item{
+  display:block;padding:7px 9px;border-radius:4px;font-size:13px;
+  color:var(--text-secondary);text-decoration:none;white-space:nowrap;
+}
+.ps-item:hover{background:var(--bg-active);color:var(--text-primary);}
+.ps-item.current{color:var(--text-primary);font-weight:500;}
+.ps-sep{height:1px;background:var(--border-default);margin:4px 2px;}
+.ps-add-form{display:flex;gap:4px;padding:6px 4px 2px;}
+.ps-add-form input{
+  flex:1;min-width:0;font-size:12px;padding:5px 6px;border-radius:4px;
+  border:1px solid var(--border-default);background:var(--bg-surface);color:var(--text-primary);
+}
+.ps-add-form button{
+  font-size:12px;padding:5px 8px;border-radius:4px;border:1px solid var(--border-default);
+  background:transparent;color:var(--text-secondary);cursor:pointer;
+}
+.ps-add-form button:hover{color:var(--text-primary);border-color:var(--text-secondary);}
+.ps-portfolio{color:var(--text-muted);cursor:default;}
+.ps-portfolio:hover{background:none;color:var(--text-muted);}
 .nav-item{
   padding:9px 12px;border-radius:6px;font-size:14px;color:var(--text-secondary);
   cursor:pointer;margin-bottom:2px;transition:background .15s, color .15s;
@@ -307,7 +342,21 @@ svg.pulse{width:100%;height:28px;display:block;}
       <span class="logo-mark"><!-- LOGO MARK --></span>
       <div class="logo-text">
         <div class="logo">PMQs</div>
-        <div class="logo-sub">acme-app · production</div>
+        <div class="product-switcher" id="product-switcher">
+          <div class="ps-current" id="ps-current" onclick="pmqsToggleSwitcher(event)">
+            acme-app · production <span class="ps-chevron">⌄</span>
+          </div>
+          <div class="ps-menu" id="ps-menu">
+            <!-- PRODUCT SWITCHER ITEMS -->
+            <a class="ps-item current" href="#">acme-app</a>
+            <!-- /PRODUCT SWITCHER ITEMS -->
+            <div class="ps-sep"></div>
+            <form class="ps-add-form" method="post" action="/products" onclick="event.stopPropagation()">
+              <input type="text" name="repo" placeholder="org/repo" required>
+              <button type="submit">Add</button>
+            </form>
+          </div>
+        </div>
       </div>
     </div>
 
