@@ -16,9 +16,9 @@ from typing import Any
 
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import context_feed, llm, repository, scoring, settings
+from pmqs import context_feed, llm, members, repository, scoring, settings
 from pmqs.config import LENS_WEIGHTS
-from pmqs.dedup import dedup
+from pmqs.dedup import dedup, judge_prior_awareness, raisable
 
 log = logging.getLogger(__name__)
 
@@ -104,9 +104,19 @@ def run_session_lenses(db: OrmSession, session: Any) -> list:
     if not candidates:
         return []
 
+    # Wave 2 item 9 (§10.3), Loops 2 and 3: the same dedup judgment, wider evidence --
+    # this Product's prior decisions and colleagues' open inbox items. A candidate that
+    # challenges a prior decision still gets raised; that is the point, not a leak.
     deduped = dedup(candidates)
+    deduped = judge_prior_awareness(
+        deduped, db,
+        product_id=session.product_id,
+        member_id=members.current_member_id(db),
+        topic=topic,
+        lens=(relevant[0] if len(relevant) == 1 else None),
+    )
     questions = []
-    for cand in deduped:
+    for cand in raisable(deduped):
         q = repository.create_question(
             db,
             title=cand["title"],
