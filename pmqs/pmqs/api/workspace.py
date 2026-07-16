@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import lenses, position_doc, products, repository, warroom
+from pmqs import lenses, members, position_doc, products, repository, warroom
 from pmqs.db import get_session
 from pmqs.resolve import resolve_question_id
 from pmqs.web.render import render_error, render_workspace
@@ -116,7 +116,9 @@ def workspace_position_doc(session_id: str, db: OrmSession = Depends(get_session
     if not sess.position_doc and sess.question_id:
         q = repository.get_question(db, sess.question_id)
         if q is not None:
-            doc = position_doc.generate(db, q)
+            # member_id so cited prior decisions respect §4 -- a doc must never
+            # cite a room the reader isn't allowed to see.
+            doc = position_doc.generate(db, q, member_id=members.current_member_id(db))
             repository.set_position_doc(db, session_id, doc)
     return RedirectResponse(url=f"/workspace/{session_id}", status_code=303)
 
