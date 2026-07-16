@@ -470,3 +470,43 @@ def mark_news_processed(db: OrmSession, item_ids: list[str]) -> None:
         if item is not None:
             item.processed = True
     db.commit()
+
+
+def list_other_members_open_questions(
+    db: OrmSession, *, product_id: str | None, member_id: str | None
+) -> list[Question]:
+    """Other members' still-open inbox items for this Product (build-spec §10.3).
+
+    Evidence for the widened dedup judgment ONLY -- this is the one place anything reads
+    across the Inbox's member boundary, and it exists so a question can be ROUTED to the
+    colleague already working on it instead of raised twice.
+
+    NOTE, tension worth naming (§4 rule 5 vs §10.3): the Inbox is always member-scoped,
+    yet §10.3 gives the dedup judgment its evidence from other members' open inbox items.
+    Both can hold only because the judgment CONSUMES these without DISPLAYING them --
+    nothing here reaches a rendered inbox. A route verdict surfaces a colleague's
+    Workspace, which carries its own §4 visibility, never their inbox item.
+    """
+    stmt = select(Question).where(Question.status.in_(("proposed", "saved")))
+    if product_id is not None:
+        stmt = stmt.where(Question.product_id == product_id)
+    if member_id is not None:
+        stmt = stmt.where(Question.author_member_id != member_id)
+    return list(db.scalars(stmt))
+
+
+def find_visible_session_for_question(
+    db: OrmSession, *, question_id: str, member_id: str | None
+) -> Session | None:
+    """An open room for `question_id` that `member_id` is allowed to see (§4).
+
+    The route verdict points a PM at a colleague's Workspace, so it must not point at one
+    they can't open -- routing to a private room would leak both its existence and its
+    topic. Returns None when the colleague's room is private to them, which correctly
+    degrades route into "just raise it".
+    """
+    stmt = select(Session).where(Session.question_id == question_id, Session.status == "open")
+    for s in db.scalars(stmt):
+        if s.visibility != "private" or (member_id is not None and s.author_member_id == member_id):
+            return s
+    return None
