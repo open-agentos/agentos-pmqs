@@ -560,14 +560,45 @@ def _outcome_title(otype: str, payload: dict) -> str:
     return payload.get("title", "") or payload.get("text", "")
 
 
-def _ledger_item_html(o: Any, payload: dict) -> str:
+def _author_names(db: Any, outcomes: list) -> dict:
+    """Map author_member_id -> display_name for a page of outcomes, in one query.
+
+    The ledger grows monotonically (build-spec §12 "landfill"), so this resolves names in
+    a single IN() rather than lazily per row -- a per-row lookup is an N+1 that gets
+    slower exactly as the product succeeds.
+    """
+    from pmqs.models import Member
+
+    ids = {o.author_member_id for o in outcomes if o.author_member_id}
+    if not ids:
+        return {}
+    rows = db.query(Member).filter(Member.id.in_(ids)).all()
+    return {m.id: m.display_name for m in rows}
+
+
+def _ledger_item_html(o: Any, payload: dict, author: str | None = None) -> str:
+    """One ledger row.
+
+    `author` renders the "who decided this" half of Wave 1/2's whole point: the ledger is
+    Product-scoped, so a row may well be a colleague's. It rides the existing .ledger-src
+    line and --text-muted rather than introducing a surface of its own -- no new colour
+    token, so tests/test_brand_doc.py stays green (build-spec §11).
+
+    NOTE: attribution here is per-outcome and never aggregated. Count outcomes, never
+    rank people (§12 "attribution chilling"): if the ledger ever scores members, PMs stop
+    recording the messy decisions and the ledger stops being worth reading.
+    """
     otype = o.type
     tag = _LEDGER_TAG.get(otype, otype.title())
     title = html.escape(_outcome_title(otype, payload) or "(untitled)")
     src = "from war-room" + ("" if o.session_id else " · direct")
-    ref = ""
+    if author:
+        src += f" · {author}"
     if o.github_ref:
-        ref = f'<div class="ledger-src"><a href="{html.escape(o.github_ref)}">{html.escape(o.github_ref)}</a></div>'
+        ref = f'<div class="ledger-src"><a href="{html.escape(o.github_ref)}">{html.escape(o.github_ref)}</a>'
+        if author:
+            ref += f' · {html.escape(author)}'
+        ref += '</div>'
     else:
         ref = f'<div class="ledger-src">{html.escape(src)}</div>'
     return (
@@ -593,15 +624,21 @@ def render_outcomes(db: Any, template_path: Path | None = None, *, product_id: s
 
     src = _load_template(template_path)
     src = _apply_product_switcher(src, db, workspace_slug)
-    outcomes = repository.list_outcomes(db, product_id=product_id)
-    # newest first by created_at
-    outcomes = sorted(outcomes, key=lambda o: getattr(o, "created_at", ""), reverse=True)
+    # Product-scoped, visibility-filtered (build-spec §4/§5): every member's outcomes,
+    # minus other members' private rooms. Already newest-first from the query.
+    from pmqs import members as members_repo
 
+    viewer_id = members_repo.current_member_id(db)
+    outcomes = repository.list_ledger_outcomes(db, product_id=product_id, member_id=viewer_id)
+
+    authors = _author_names(db, outcomes)
     counts = {"issue": 0, "policy": 0, "document": 0, "meeting": 0, "question": 0}
     items = []
     for o in outcomes:
         counts[o.type] = counts.get(o.type, 0) + 1
-        items.append(_ledger_item_html(o, repository.outcome_payload(o)))
+        items.append(
+            _ledger_item_html(o, repository.outcome_payload(o), authors.get(o.author_member_id))
+        )
 
     if items:
         ledger_html = "\n".join(items)

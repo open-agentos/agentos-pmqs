@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, Form, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import products, repository, scoring
+from pmqs import members, products, repository, scoring
 from pmqs.agentos_client import AgentOSClient
 from pmqs.db import get_session
 from pmqs.pipeline import generate
@@ -62,7 +62,12 @@ def index(
         return HTMLResponse(render_error(f"No such product workspace: {workspace_slug}", 404), status_code=404)
     # Canonical Inbox = persisted questions (proposed + saved), ranked. No silent swap to
     # a live-GitHub view — an empty store shows an explicit empty-state (see render_inbox).
-    questions = repository.list_questions(db, lens_tag=lens, source=source, product_id=product_id)
+    # The Inbox is ALWAYS member-scoped (build-spec §4 rule 5) -- it stays private even
+    # though the Outcomes ledger it feeds is Product-wide.
+    questions = repository.list_questions(
+        db, lens_tag=lens, source=source, product_id=product_id,
+        member_id=members.current_member_id(db),
+    )
     return HTMLResponse(render_inbox(questions, flash=news, refreshed=refreshed, db=db, workspace_slug=workspace_slug))
 
 
@@ -132,7 +137,10 @@ def api_questions(
         product_id = products.resolve_product_id(db, workspace_slug)
     except KeyError:
         return JSONResponse({"error": "not found"}, status_code=404)
-    qs = repository.list_questions(db, lens_tag=lens, include_all=include_all, product_id=product_id)
+    qs = repository.list_questions(
+        db, lens_tag=lens, include_all=include_all, product_id=product_id,
+        member_id=members.current_member_id(db),
+    )
     return JSONResponse(
         [
             {
