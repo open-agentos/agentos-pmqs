@@ -13,12 +13,16 @@ from pmqs import repository
 from pmqs.agentos_client import AgentOSClient
 
 
-def resolve_question_id(db: OrmSession, qid: str) -> str | None:
+def resolve_question_id(db: OrmSession, qid: str, *, repo: str | None = None, workspace_id: str | None = None) -> str | None:
     """Return a real Question id for `qid`.
 
     - If `qid` is a normal id, return it if the row exists, else None.
     - If `qid` is a pseudo-id 'issue:<n>', fetch that issue and persist it as a Question,
       returning the new id. Returns None if the issue can't be found.
+
+    `repo` and `workspace_id` let a workspace-scoped caller (see #56) resolve the issue
+    against that workspace's own Product repo and persist the Question into that same
+    workspace, instead of config.AGENTOS_REPO / the account's default workspace.
     """
     if not qid:
         return None
@@ -27,7 +31,7 @@ def resolve_question_id(db: OrmSession, qid: str) -> str | None:
 
     number = qid.split(":", 1)[1]
     try:
-        state = AgentOSClient().get_state()
+        state = AgentOSClient(repo=repo).get_state()
         issue = next((i for i in state.get("issues", []) if str(i.get("number")) == number), None)
     except Exception:
         issue = None
@@ -41,5 +45,6 @@ def resolve_question_id(db: OrmSession, qid: str) -> str | None:
         description=issue.get("body") or "",
         evidence=[{"type": "issue", "ref": ref, "url": issue.get("url", "")}],
         status="proposed",
+        workspace_id=workspace_id,
     )
     return q.id

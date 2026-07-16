@@ -497,16 +497,18 @@ def _ledger_item_html(o: Any, payload: dict) -> str:
     )
 
 
-def render_outcomes(db: Any, template_path: Path | None = None) -> str:
+def render_outcomes(db: Any, template_path: Path | None = None, *, workspace_id: str | None = None) -> str:
     """Splice real outcome rows + summary counts into the template's Outcomes view.
 
     Mirrors the Inbox wiring: replace the static ledger fixtures and the summary-strip
-    numbers with real data. Inbox/Workspace views preserved.
+    numbers with real data. Inbox/Workspace views preserved. `workspace_id` scopes the
+    ledger to one product (see #56); omitted, it shows every workspace's outcomes --
+    the pre-multi-product behaviour existing callers still rely on.
     """
     from pmqs import repository
 
     src = _load_template(template_path)
-    outcomes = repository.list_outcomes(db)
+    outcomes = repository.list_outcomes(db, workspace_id=workspace_id)
     # newest first by created_at
     outcomes = sorted(outcomes, key=lambda o: getattr(o, "created_at", ""), reverse=True)
 

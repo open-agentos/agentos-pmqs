@@ -1,11 +1,18 @@
-"""api/outcomes.py — FastAPI routes: Outcomes ledger + push action."""
+"""api/outcomes.py — FastAPI routes: Outcomes ledger + push action.
+
+The ledger routes (GET /outcomes, GET /api/outcomes) support both the legacy
+unprefixed mount and /w/{workspace_slug}/... (see #56), same pattern as
+api/inbox.py. Routes keyed by session_id or outcome_id don't need a slug in the
+path -- the Session already carries its own workspace_id from creation (#52), so
+outcomes created against it inherit that scoping automatically.
+"""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import repository
+from pmqs import products, repository
 from pmqs.db import get_session
 from pmqs.outcomes import push_question_to_issue
 from pmqs.outcomes.types import (
@@ -15,18 +22,28 @@ from pmqs.outcomes.types import (
     build_policy,
     build_question,
 )
-from pmqs.web.render import render_outcomes
+from pmqs.web.render import render_error, render_outcomes
 
 router = APIRouter()
 
 
 @router.get("/outcomes", response_class=HTMLResponse)
-def outcomes_page(db: OrmSession = Depends(get_session)):
-    return HTMLResponse(render_outcomes(db))
+@router.get("/w/{workspace_slug}/outcomes", response_class=HTMLResponse)
+def outcomes_page(workspace_slug: str | None = None, db: OrmSession = Depends(get_session)):
+    try:
+        workspace_id = products.resolve_workspace_id(db, workspace_slug)
+    except KeyError:
+        return HTMLResponse(render_error(f"No such product workspace: {workspace_slug}", 404), status_code=404)
+    return HTMLResponse(render_outcomes(db, workspace_id=workspace_id))
 
 
 @router.get("/api/outcomes")
-def list_outcomes(db: OrmSession = Depends(get_session)):
+@router.get("/w/{workspace_slug}/api/outcomes")
+def list_outcomes(workspace_slug: str | None = None, db: OrmSession = Depends(get_session)):
+    try:
+        workspace_id = products.resolve_workspace_id(db, workspace_slug)
+    except KeyError:
+        return JSONResponse({"error": "not found"}, status_code=404)
     return JSONResponse(
         [
             {
@@ -35,7 +52,7 @@ def list_outcomes(db: OrmSession = Depends(get_session)):
                 "github_ref": o.github_ref,
                 "created_at": o.created_at,
             }
-            for o in repository.list_outcomes(db)
+            for o in repository.list_outcomes(db, workspace_id=workspace_id)
         ]
     )
 
@@ -66,6 +83,9 @@ def create_typed_outcome(
     question_id: str = Form(default=""),
     db: OrmSession = Depends(get_session),
 ):
+    session = repository.get_session_row(db, session_id)
+    workspace_id = session.workspace_id if session is not None else None
+
     if type == "issue":
         # Promote to real GitHub. Prefer a linked Question if provided.
         q = repository.get_question(db, question_id) if question_id else None
@@ -73,6 +93,7 @@ def create_typed_outcome(
             # Create an ad-hoc Question from the session summary so the push path is uniform.
             q = repository.create_question(
                 db, title=title or "War-room issue", source="pm", description=body,
+                workspace_id=workspace_id,
             )
         result = push_question_to_issue(db, q, session_id=session_id)
         return JSONResponse({"type": "issue", **result})
@@ -98,6 +119,7 @@ def create_typed_outcome(
         payload=payload,
         session_id=session_id,
         github_ref=None,  # hosted-store only; policy can never be pushed
+        workspace_id=workspace_id,
     )
     return JSONResponse({"type": type, "outcome_id": outcome.id, "github_ref": None})
 

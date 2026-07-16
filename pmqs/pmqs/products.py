@@ -123,3 +123,20 @@ def get_or_create_default_workspace(db: OrmSession) -> Workspace:
     org, repo = parse_repo_ref(config.AGENTOS_REPO)
     product = get_or_create_product(db, org=org, repo=repo, display_name=repo)
     return create_workspace(db, product=product)
+
+
+def resolve_workspace_id(db: OrmSession, workspace_slug: str | None) -> str | None:
+    """Turn an optional `workspace_slug` path param into a concrete workspace_id.
+
+    Used by every route that now supports BOTH the legacy unprefixed path (no slug --
+    returns None, meaning "no workspace filter", the pre-#56 behaviour) and the new
+    `/w/{workspace_slug}/...` path (see #56 -- resolves to that workspace's id).
+    Raises KeyError if the slug doesn't match any workspace, which routes translate to
+    a 404.
+    """
+    if workspace_slug is None:
+        return None
+    ws = get_workspace_by_slug(db, workspace_slug)
+    if ws is None:
+        raise KeyError(workspace_slug)
+    return ws.id
