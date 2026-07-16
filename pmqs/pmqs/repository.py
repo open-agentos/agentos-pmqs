@@ -15,6 +15,18 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _resolve_workspace_id(db: OrmSession) -> str:
+    """Fall back to the account's default Workspace when a caller doesn't specify one.
+
+    Keeps every existing call site (pre-#56 routing work) working unchanged while new
+    rows still land in a real Workspace rather than NULL. Once routes thread a real
+    workspace_id through explicitly (see #56), this fallback simply stops being hit.
+    """
+    from pmqs import products
+
+    return products.get_or_create_default_workspace(db).id
+
+
 # --- Questions ---
 def create_question(
     db: OrmSession,
@@ -28,8 +40,10 @@ def create_question(
     score: float | None = None,
     score_dims: dict[str, Any] | None = None,
     origin_session_id: str | None = None,
+    workspace_id: str | None = None,
 ) -> Question:
     q = Question(
+        workspace_id=workspace_id or _resolve_workspace_id(db),
         title=title,
         source=source,
         description=description,
@@ -55,14 +69,22 @@ def list_questions(
     lens_tag: str | None = None,
     source: str | None = None,
     include_all: bool = False,
+    workspace_id: str | None = None,
 ) -> list[Question]:
     """Ranked Inbox list.
 
     By default excludes 'dismissed' and 'promoted' (they've left the Inbox) — only
     'proposed' and 'saved' remain. `include_all=True` returns every status (debug/API).
-    Optional lens_tag / source filters (server-side, for the filter pills).
+    Optional lens_tag / source filters (server-side, for the filter pills). Optional
+    workspace_id scopes to one product's stream (the isolation boundary between
+    products/PMs, see products.py); omitting it returns every workspace's questions,
+    which existing single-workspace call sites still rely on until #56 threads a real
+    workspace through routing.
     """
-    rows = list(db.scalars(select(Question)))
+    stmt = select(Question)
+    if workspace_id is not None:
+        stmt = stmt.where(Question.workspace_id == workspace_id)
+    rows = list(db.scalars(stmt))
     if not include_all:
         rows = [q for q in rows if q.status in ("proposed", "saved")]
     if lens_tag:
@@ -110,8 +132,12 @@ def set_question_score(db: OrmSession, qid: str, score: float, dims: dict[str, A
 
 # --- Sessions (Phase 2 war-room) ---
 def open_session(db: OrmSession, *, topic: str | None = None,
-                 question_id: str | None = None, parent_id: str | None = None) -> Session:
-    s = Session(topic=topic, question_id=question_id, parent_id=parent_id, status="open")
+                 question_id: str | None = None, parent_id: str | None = None,
+                 workspace_id: str | None = None) -> Session:
+    s = Session(
+        topic=topic, question_id=question_id, parent_id=parent_id, status="open",
+        workspace_id=workspace_id or _resolve_workspace_id(db),
+    )
     db.add(s)
     db.commit()
     return s
@@ -181,6 +207,7 @@ def create_outcome(
     payload: dict[str, Any],
     session_id: str | None = None,
     github_ref: str | None = None,
+    workspace_id: str | None = None,
 ) -> Outcome:
     # Policies must never sync to GitHub (product-design.md). Enforce here.
     if type == "policy" and github_ref is not None:
@@ -190,23 +217,33 @@ def create_outcome(
         payload=json.dumps(payload),
         session_id=session_id,
         github_ref=github_ref,
+        workspace_id=workspace_id or _resolve_workspace_id(db),
     )
     db.add(o)
     db.commit()
     return o
 
 
-def list_outcomes(db: OrmSession) -> list[Outcome]:
-    return list(db.scalars(select(Outcome)))
+def list_outcomes(db: OrmSession, *, workspace_id: str | None = None) -> list[Outcome]:
+    stmt = select(Outcome)
+    if workspace_id is not None:
+        stmt = stmt.where(Outcome.workspace_id == workspace_id)
+    return list(db.scalars(stmt))
 
 
-def list_durable_outcomes(db: OrmSession, *, active_only: bool = True) -> list[Outcome]:
-    """Durable (policy|document|meeting) outcomes, newest first. Feeds the context-feed."""
+def list_durable_outcomes(db: OrmSession, *, active_only: bool = True, workspace_id: str | None = None) -> list[Outcome]:
+    """Durable (policy|document|meeting) outcomes, newest first. Feeds the context-feed.
+
+    workspace_id matters most here: Policies must never leak across products (or
+    across PMs sharing a product) into another workspace's agent context.
+    """
     from pmqs.outcomes.types import DURABLE_TYPES
 
     stmt = select(Outcome).where(Outcome.type.in_(DURABLE_TYPES))
     if active_only:
         stmt = stmt.where(Outcome.active.is_(True))
+    if workspace_id is not None:
+        stmt = stmt.where(Outcome.workspace_id == workspace_id)
     stmt = stmt.order_by(Outcome.created_at.desc())
     return list(db.scalars(stmt))
 
@@ -236,6 +273,7 @@ def create_news_item(
     source_label: str = "",
     summary: str | None = None,
     published_at: str | None = None,
+    workspace_id: str | None = None,
 ) -> NewsItem | None:
     """Create a raw news item. Dedup by URL: returns None if the URL already exists."""
     existing = db.scalars(select(NewsItem).where(NewsItem.url == url)).first()
@@ -244,16 +282,19 @@ def create_news_item(
     item = NewsItem(
         url=url, title=title, source_label=source_label,
         summary=summary, published_at=published_at,
+        workspace_id=workspace_id or _resolve_workspace_id(db),
     )
     db.add(item)
     db.commit()
     return item
 
 
-def list_news_items(db: OrmSession, *, unprocessed_only: bool = False) -> list[NewsItem]:
+def list_news_items(db: OrmSession, *, unprocessed_only: bool = False, workspace_id: str | None = None) -> list[NewsItem]:
     stmt = select(NewsItem)
     if unprocessed_only:
         stmt = stmt.where(NewsItem.processed.is_(False))
+    if workspace_id is not None:
+        stmt = stmt.where(NewsItem.workspace_id == workspace_id)
     stmt = stmt.order_by(NewsItem.fetched_at.desc())
     return list(db.scalars(stmt))
 
