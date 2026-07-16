@@ -234,7 +234,17 @@ def create_outcome(
     session_id: str | None = None,
     github_ref: str | None = None,
     product_id: str | None = None,
+    author_member_id: str | None = None,
 ) -> Outcome:
+    """Record an Outcome.
+
+    `author_member_id` defaults to the account's stub Member if not given (single-tenant
+    until Phase 5 auth), mirroring open_session(). New outcomes are active
+    (retired_at IS NULL) and unpromoted (promoted_at IS NULL) -- promotion is an
+    explicit act, see build-spec §4 rule 3.
+    """
+    from pmqs import members as members_repo
+
     # Policies must never sync to GitHub (product-design.md). Enforce here.
     if type == "policy" and github_ref is not None:
         raise ValueError("Policy outcomes must never carry a github_ref")
@@ -244,6 +254,7 @@ def create_outcome(
         session_id=session_id,
         github_ref=github_ref,
         product_id=product_id or _resolve_product_id(db),
+        author_member_id=author_member_id or members_repo.get_or_create_default_member(db).id,
     )
     db.add(o)
     db.commit()
@@ -267,18 +278,38 @@ def list_durable_outcomes(db: OrmSession, *, active_only: bool = True, product_i
 
     stmt = select(Outcome).where(Outcome.type.in_(DURABLE_TYPES))
     if active_only:
-        stmt = stmt.where(Outcome.active.is_(True))
+        # build-spec §7: `retired_at IS NULL` is THE active predicate. This is the guard
+        # against landfill -- a shared ledger grows monotonically, and without lifecycle
+        # the context pool fills with contradictory standing rules and the system gets
+        # dumber as the team gets busier.
+        stmt = stmt.where(Outcome.retired_at.is_(None))
     if product_id is not None:
         stmt = stmt.where(Outcome.product_id == product_id)
     stmt = stmt.order_by(Outcome.created_at.desc())
     return list(db.scalars(stmt))
 
 
-def deactivate_outcome(db: OrmSession, outcome_id: str) -> Outcome | None:
+def deactivate_outcome(
+    db: OrmSession, outcome_id: str, *, superseded_by_outcome_id: str | None = None
+) -> Outcome | None:
+    """Retire an Outcome, optionally naming the Outcome that replaces it.
+
+    Stamps retired_at, which is the only thing that makes an outcome inactive
+    (build-spec §7). Passing `superseded_by_outcome_id` distinguishes the spec's two
+    retired states -- superseded (replaced by outcome N) from retired-without-
+    replacement (just no longer stands) -- without a status enum to migrate later.
+
+    Idempotent on retired_at: re-retiring an already-retired outcome keeps the original
+    timestamp rather than moving it, so the ledger's history doesn't drift on a double
+    click. A later supersede can still name the replacement.
+    """
     o = db.get(Outcome, outcome_id)
     if o is None:
         return None
-    o.active = False
+    if o.retired_at is None:
+        o.retired_at = _now()
+    if superseded_by_outcome_id is not None:
+        o.superseded_by_outcome_id = superseded_by_outcome_id
     db.commit()
     return o
 
