@@ -81,7 +81,13 @@ def promote_relevant(db: OrmSession, config: dict[str, Any] | None = None) -> li
     user = (
         f"PRODUCT PROFILE:\n{profile}\n\nRAW NEWS ITEMS:\n" + "\n".join(lines)
     )
-    user = context_feed.augment(user, context_feed.build_context_block(db))
+    # product_id=None (i.e. unscoped) is WRONG here and is passed deliberately rather
+    # than silently: promote_relevant() batches every product's unprocessed news items
+    # into one prompt, against one global product_profile, and creates Questions with no
+    # product_id at all. There is no single product to scope to until that is fixed.
+    # Tracked separately as a Phase 4 defect -- news ingestion is not live, so nothing
+    # leaks today. Do NOT copy this call as a template; see context_feed's SCOPE note.
+    user = context_feed.augment(user, context_feed.build_context_block(db, product_id=None))
 
     try:
         result = llm.complete_json(_SYSTEM, user, settings_cfg=settings.get_llm(db), max_tokens=1500)

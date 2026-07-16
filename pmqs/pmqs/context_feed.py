@@ -9,9 +9,21 @@ product-design.md.
 Design (product-owner resolved):
 - Q1: include ALL ACTIVE durable outcomes, newest-first, capped by a char budget.
   No per-session LLM relevance call (cost-bounded).
-- Q3: Policies are GLOBAL and always included; they are placed FIRST and truncated last
-  so standing rules are never dropped.
+- Q3: Policies are always included within their Product; they are placed FIRST and
+  truncated last so standing rules are never dropped.
 - Q6: char budget is configurable in Settings (default 4000).
+
+SCOPE — read before touching (build-spec §5, Wave 2 item 6):
+Durable outcomes are PRODUCT-scoped, not member-scoped and not global. Every member of
+a Product feeds every other member's agents -- that is Loop 1, the whole network effect
+in one query. But nothing crosses the Product boundary (§2).
+
+`product_id` is a REQUIRED keyword. It reads as noise at a call site that "obviously"
+has only one product; it is not. Before Wave 2 item 6 this function took no product at
+all and returned every product's policies to every product's agents -- a live
+cross-product leak, sitting behind a docstring that said "Policies are GLOBAL" as though
+that were the design. Making the parameter required is what stops that returning by
+omission.
 
 Same plumbing for every non-Issue durable type — no per-type bespoke integration.
 Never raises: a failure returns an empty block so prompts are simply un-augmented.
@@ -37,14 +49,26 @@ _HEADERS = {
 _ORDER = ["policy", "document", "meeting"]
 
 
-def build_context_block(db: OrmSession, *, char_budget: int | None = None) -> str:
-    """Assemble active durable outcomes into a single context block string.
+def build_context_block(
+    db: OrmSession, *, product_id: str | None, char_budget: int | None = None
+) -> str:
+    """Assemble a Product's active durable outcomes into a single context block string.
+
+    `product_id` scopes the feed and is required -- see SCOPE in the module docstring.
+    Passing None explicitly means "unscoped", which is only correct where there is
+    genuinely no single product in play; it is not a default to reach for.
+
+    Only ACTIVE outcomes are fed: `retired_at IS NULL` (build-spec §7). A retired policy
+    is not a weaker policy, it is not a policy -- and a shared ledger that keeps feeding
+    withdrawn standing rules gets dumber as the team gets busier (§12 "landfill").
 
     Returns "" when nothing is active (callers then add nothing to the prompt).
     """
     try:
         budget = char_budget if char_budget is not None else settings.get_context_budget(db)
-        outcomes = repository.list_durable_outcomes(db, active_only=True)  # newest-first
+        outcomes = repository.list_durable_outcomes(
+            db, active_only=True, product_id=product_id
+        )  # newest-first
         if not outcomes:
             return ""
 

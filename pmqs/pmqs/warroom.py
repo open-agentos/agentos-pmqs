@@ -60,7 +60,11 @@ def respond(db: OrmSession, session_id: str, pm_message: str) -> Any:
     convo = "\n".join(f"{m.role.upper()}: {m.content}" for m in history)
     user = f"{_context_preamble(db, session)}\n\nConversation so far:\n{convo}\n\nRespond as the war-room partner."
     # Phase 3: prepend the unified context-feed (standing policies, documents, agendas).
-    user = context_feed.augment(user, context_feed.build_context_block(db))
+    # Scoped to this room's Product (build-spec §5) -- Loop 1: any member's active
+    # Policy constrains every member's agents, and nothing crosses the Product.
+    user = context_feed.augment(
+        user, context_feed.build_context_block(db, product_id=session.product_id)
+    )
 
     reply = _FALLBACK
     if llm.is_enabled():
