@@ -30,6 +30,7 @@ def init_db() -> None:
     _backfill_membership()
     _backfill_session_authorship()
     _backfill_outcome_authorship()
+    _backfill_question_authorship()
 
 
 def _apply_light_migrations() -> None:
@@ -40,7 +41,11 @@ def _apply_light_migrations() -> None:
     from sqlalchemy import inspect, text
 
     additions = {
-        "questions": [("origin_session_id", "TEXT"), ("product_id", "TEXT")],
+        "questions": [
+            ("origin_session_id", "TEXT"),
+            ("product_id", "TEXT"),
+            ("author_member_id", "TEXT"),
+        ],
         "sessions": [
             ("product_id", "TEXT"),
             ("author_member_id", "TEXT"),
@@ -227,6 +232,35 @@ def _backfill_session_authorship() -> None:
         session.execute(
             update(SessionModel)
             .where(SessionModel.author_member_id.is_(None))
+            .values(author_member_id=member.id)
+        )
+        session.commit()
+    finally:
+        session.close()
+
+
+def _backfill_question_authorship() -> None:
+    """Every existing Question authored to the account's default Member (build-spec §7:
+    "ALTERED question + author_member_id"). Same shape as the Session/Outcome backfills.
+
+    Idempotent: only touches rows where author_member_id IS NULL.
+    """
+    from sqlalchemy import update
+
+    from pmqs import members as members_repo
+    from pmqs.models import Member, Question
+
+    session = SessionLocal()
+    try:
+        pending = session.query(Question).filter(Question.author_member_id.is_(None)).first() is not None
+        if not pending:
+            return
+        member = session.query(Member).first()
+        if member is None:
+            member = members_repo.get_or_create_default_member(session)
+        session.execute(
+            update(Question)
+            .where(Question.author_member_id.is_(None))
             .values(author_member_id=member.id)
         )
         session.commit()
