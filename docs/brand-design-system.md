@@ -215,12 +215,19 @@ see the refinement note above for the preferred replacement approach.)*
 
 ## 3. Colour Tokens
 
+> **This section was rewritten to match what shipped.** Draft 1's palette was 13 tokens.
+> The UI needs 21. The gap wasn't padding — see "Derived tokens" and "The fourth surface"
+> below. `tests/test_brand_doc.py` now asserts every token in the template appears here,
+> so this can't quietly drift again.
+
 ```css
 :root {
+
   /* Structure */
   --bg-main: #12181c;
   --bg-surface: #1a2226;
   --bg-active: #212b30;
+  --bg-raised: #273136;
   --border-default: #2e383d;
   --border-muted: #232b2f;
 
@@ -229,32 +236,92 @@ see the refinement note above for the preferred replacement approach.)*
   --text-secondary: #9aa5a9;
   --text-muted: #5f6a6d;
 
-  /* Structural accent (also the logo's ring family) — FILL ONLY, see below */
+  /* Structural accent — the logo's ring family.
+     FILL ONLY: 1.88:1 on --bg-main, i.e. invisible as text or a border. */
   --accent-teal: #1f4d47;
+  /* Foreground members of that same hue family (h=184), derived by lifting
+     lightness at constant hue/chroma until measured. */
+  --accent-teal-fg: #5b8a83;   /* 4.61:1 */
+  --accent-teal-dim: #476a66;  /* 3.00:1 */
 
-  /* Semantic */
-  --accent-gold: #dfb15b;    /* resolution / primary action / logo tail resolve */
-  --accent-sage: #8fae86;    /* success state only */
-  --pulse-cyan: #38bdf8;     /* telemetry / info */
-  --pulse-coral: #f87171;    /* risk / error */
+  /* Semantic. Each accent has a border derivative, mixed toward --bg-main to 3:1 */
+  --accent-gold: #dfb15b;
+  --accent-gold-dim: #75613d;
+  --accent-sage: #8fae86;
+  --pulse-cyan: #38bdf8;
+  --pulse-coral: #f87171;
+  --pulse-coral-dim: #984e4e;
 
-  /* Document surface — the §3 exception. See "Warm paper" below. */
+  /* Document surface — the exception below */
   --paper: #efe9dd;
   --paper-ink: #2a2620;
   --paper-muted: #6b6153;
 }
 ```
 
-| Token | Value | Use |
-|---|---|---|
-| `--bg-main` | `#12181c` | App background |
-| `--bg-surface` | `#1a2226` | Panels, cards |
-| `--text-primary` | `#f4efe6` | Body/heading text |
-| `--accent-gold` | `#dfb15b` | Primary actions, active states, the logo's resolved point |
-| `--accent-sage` | `#8fae86` | Success/confirmation states only |
-| `--pulse-cyan` | `#38bdf8` | Telemetry, live status |
-| `--pulse-coral` | `#f87171` | Errors, risk flags |
-| `--paper` | `#efe9dd` | **Document surfaces only** — see below |
+*(Font tokens live alongside these in `:root`; see §4.)*
+
+| Token | Value | On `--bg-main` | Use |
+|---|---|---|---|
+| `--bg-main` | `#12181c` | — | App background |
+| `--bg-surface` | `#1a2226` | — | Panels, cards |
+| `--bg-active` | `#212b30` | — | Active/hover surface |
+| `--bg-raised` | `#273136` | — | Chips and controls sitting **on** `--bg-active` |
+| `--border-default` | `#2e383d` | — | Borders, hairlines |
+| `--border-muted` | `#232b2f` | — | Defined, currently unused — see below |
+| `--text-primary` | `#f4efe6` | 15.63:1 ✅ | Body/heading text |
+| `--text-secondary` | `#9aa5a9` | 7.10:1 ✅ | Secondary text |
+| `--text-muted` | `#5f6a6d` | 3.21:1 ⚠️ non-text | Faint metadata |
+| `--accent-teal` | `#1f4d47` | **1.88:1 ❌ fill only** | **Fill only** — the logo's ring. Never text or borders |
+| `--accent-teal-fg` | `#5b8a83` | 4.61:1 ✅ | The UI's interactive/structural accent: hover, focus, active, send |
+| `--accent-teal-dim` | `#476a66` | 3.00:1 ⚠️ non-text | Teal borders |
+| `--accent-gold` | `#dfb15b` | 9.02:1 ✅ | Resolution, primary actions, the logo's resolved point |
+| `--accent-gold-dim` | `#75613d` | 3.01:1 ⚠️ non-text | Gold borders |
+| `--accent-sage` | `#8fae86` | 7.30:1 ✅ | Success state only. Defined, currently unused — see below |
+| `--pulse-cyan` | `#38bdf8` | 8.36:1 ✅ | Telemetry / live status — the left-rail sparkline |
+| `--pulse-coral` | `#f87171` | 6.47:1 ✅ | Risk, errors |
+| `--pulse-coral-dim` | `#984e4e` | 3.01:1 ⚠️ non-text | Coral borders |
+| `--paper` | `#efe9dd` | — | **Document surfaces only** — see below |
+| `--paper-ink` | `#2a2620` | — | Text on the paper surface |
+| `--paper-muted` | `#6b6153` | — | Secondary text on paper |
+
+### Derived tokens, and why they exist
+
+Draft 1 gave one teal and called it *"structural accent (also the logo's ring family)"*.
+It can only be the second: `--accent-teal` is **1.88:1** on `--bg-main`, which is invisible
+as text or a border. But the UI needs an interactive accent — hover, focus, active states,
+the send button, the evidence rail — and Draft 1's other accents are all spoken for
+(gold = resolution, sage = success, cyan = telemetry, coral = risk). Using gold for every
+card hover would be exactly the hue inflation §3 rejects for outcome types.
+
+So the ring's hue family was **extended upward** rather than a new hue invented:
+
+- **`--accent-teal-fg`** is `#1f4d47` lifted in lightness at **constant hue and chroma**
+  (h=184) until it measures 4.61:1. It is the same family as the mark — which makes the
+  claim above literally true for the first time. The palette this replaced used `#4F8C93`,
+  **h=209**: never in the ring's family, just adjacent-looking.
+- **The `-dim` variants** are each accent **mixed toward `--bg-main` in Lab** until 3:1,
+  because a dim border *is* a tint of its accent over the background. Deriving them at
+  constant chroma instead pushed gold out of gamut into mud (`#815e01`).
+
+Every derived value is computed and measured, not picked. Each lands within ΔE2000 ~6 of
+the value it replaced.
+
+### The fourth surface
+
+Draft 1 lists three background levels. The product has four: chips sit on cards sit on
+panels sit on the page. `--bg-raised` is that fourth level. Folding it into `--bg-active`
+makes chips vanish into the cards they sit on.
+
+### Defined but unused — deliberately
+
+- **`--accent-teal`** — the logo's ring fill. The mark's SVG uses literal hex (it's served
+  standalone as a favicon, where custom properties have nothing to resolve against), so
+  this token has no call site in the CSS. It's the brand's record of the value.
+- **`--accent-sage`** — waiting on the Issue push-state (see below). Nothing else is
+  allowed to use it.
+- **`--border-muted`** — a second border tier Draft 1 specifies and the product doesn't
+  currently distinguish.
 
 ### Warm paper — the one background exception
 
@@ -268,24 +335,16 @@ a background on any other surface.
 
 The document surface also carries its own typeface — see §4.
 
-### Contrast constraints (measured, not estimated)
+### Contrast
 
-Ratios against `--bg-main` (`#12181c`):
+Every token's measured ratio against `--bg-main` is in the table above. Two need saying
+out loud:
 
-| Token | Ratio | Verdict |
-|---|---|---|
-| `--text-primary` | 15.63:1 | ✅ AA |
-| `--accent-gold` | 9.02:1 | ✅ AA |
-| `--pulse-cyan` | 8.36:1 | ✅ AA |
-| `--accent-sage` | 7.30:1 | ✅ AA |
-| `--text-secondary` | 7.10:1 | ✅ AA |
-| `--pulse-coral` | 6.47:1 | ✅ AA |
-| `--text-muted` | 3.21:1 | ⚠️ AA-large only — acceptable for faint metadata, but use knowingly |
-| `--accent-teal` | **1.88:1** | ❌ **fill only — never text or borders** |
+**`--accent-teal` is not a foreground colour.** At 1.88:1 it is effectively invisible as
+text. It is the logo's ring fill. Any foreground use takes `--accent-teal-fg`.
 
-**`--accent-teal` is not a foreground colour.** It is the logo's ring fill family. At
-1.88:1 on `--bg-main` it is effectively invisible as text. Any foreground use needs a
-lightened derivative that has been measured.
+**`--text-muted` is 3.21:1** — AA-large only. Acceptable for timestamps and faint
+metadata, but that should be a decision each time it's used, not an accident.
 
 ### Settled: hue does not carry type identity
 
