@@ -92,3 +92,13 @@ def test_render_inbox_without_db_falls_back_to_static_fixture(monkeypatch):
     # to the static switcher fixture rather than raising.
     html_out = render_inbox([])
     assert "<html" in html_out.lower()
+
+
+def test_switcher_has_inert_portfolio_placeholder(client):
+    _make_workspace(client, "acme", "widgets")
+    page = client.get("/").text
+    assert 'class="ps-item ps-portfolio"' in page
+    assert ">Portfolio<" in page
+    # Inert: a plain div, not a link -- nothing to click through to yet.
+    portfolio_snippet = page.split('class="ps-item ps-portfolio"')[1][:120]
+    assert "href=" not in portfolio_snippet
