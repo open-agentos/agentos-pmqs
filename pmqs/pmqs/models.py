@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import Boolean, ForeignKey, Text, Float, UniqueConstraint
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column
 
 from pmqs.db import Base
@@ -190,13 +191,53 @@ class Membership(Base):
 
 
 class Outcome(Base):
+    """A thing the PM produced in a war room. The compounding unit of PMQs.
+
+    Lifecycle is carried by timestamps, not by a status enum (build-spec §7):
+      active                    -> retired_at IS NULL
+      superseded                -> retired_at IS NOT NULL AND superseded_by_outcome_id IS NOT NULL
+      retired-without-replacement -> retired_at IS NOT NULL AND superseded_by_outcome_id IS NULL
+    No CHECK constraints, so there is nothing to migrate when a fourth state shows up.
+
+    NOTE — deviation from build-spec §7, deliberate: the spec's target state lists
+    promoted_at/retired_at as TIMESTAMP, but every other timestamp in this schema is an
+    ISO-8601 string in a TEXT column (see created_at). The doc was written from a
+    description of the schema rather than the code; the code wins (§0), so these are
+    TEXT for consistency and Postgres-swap parity with their neighbours.
+
+    There is deliberately NO `visibility` column here (§7): an Outcome's visibility has
+    one source of truth -- its Session -- plus the `promoted_at` exception. Resolve it
+    as "shared if its session is shared, or if promoted_at IS NOT NULL"; do not
+    denormalise a copy onto this row, it will drift out of sync with its room.
+    """
+
     __tablename__ = "outcomes"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
     product_id: Mapped[str | None] = mapped_column(ForeignKey("products.id"))
+    author_member_id: Mapped[str | None] = mapped_column(ForeignKey("members.id"))
     type: Mapped[str] = mapped_column(Text, nullable=False)  # issue|policy|document|meeting|question
     session_id: Mapped[str | None] = mapped_column(ForeignKey("sessions.id"))
     payload: Mapped[str] = mapped_column(Text, nullable=False, default="{}")  # JSON
     github_ref: Mapped[str | None] = mapped_column(Text)  # only for type='issue' after push
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)  # durable-outcome lifecycle
+    promoted_at: Mapped[str | None] = mapped_column(Text)  # §4 rule 3: private room -> Product ledger, one-way
+    retired_at: Mapped[str | None] = mapped_column(Text)  # the active predicate: active == retired_at IS NULL
+    superseded_by_outcome_id: Mapped[str | None] = mapped_column(ForeignKey("outcomes.id"))
     created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
+
+    @hybrid_property
+    def active(self) -> bool:
+        """Derived, never stored. The `active` BOOLEAN column that used to back this was
+        dropped in favour of retired_at (build-spec §7: "Active is retired_at IS NULL") --
+        see db._migrate_outcome_active_to_retired_at. Read-only by design: there is no
+        setter, so `o.active = False` now raises rather than quietly writing a second
+        source of truth. Retire via repository.deactivate_outcome().
+        """
+        return self.retired_at is None
+
+    @active.inplace.expression
+    @classmethod
+    def _active_expression(cls):
+        # Class-level form, so `select(Outcome).where(Outcome.active.is_(True))` still
+        # compiles to the retired_at predicate instead of silently breaking.
+        return cls.retired_at.is_(None)

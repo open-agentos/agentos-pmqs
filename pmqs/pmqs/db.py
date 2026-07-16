@@ -4,6 +4,8 @@ SQLAlchemy Core/ORM so a Phase 5 swap to Postgres doesn't require a rewrite.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -27,6 +29,7 @@ def init_db() -> None:
     _backfill_default_product()
     _backfill_membership()
     _backfill_session_authorship()
+    _backfill_outcome_authorship()
 
 
 def _apply_light_migrations() -> None:
@@ -43,7 +46,13 @@ def _apply_light_migrations() -> None:
             ("author_member_id", "TEXT"),
             ("visibility", "TEXT NOT NULL DEFAULT 'shared'"),
         ],
-        "outcomes": [("product_id", "TEXT")],
+        "outcomes": [
+            ("product_id", "TEXT"),
+            ("author_member_id", "TEXT"),
+            ("promoted_at", "TEXT"),
+            ("retired_at", "TEXT"),
+            ("superseded_by_outcome_id", "TEXT"),
+        ],
         "news_items": [("product_id", "TEXT")],
         "products": [
             ("slug", "TEXT"),
@@ -69,6 +78,40 @@ def _apply_light_migrations() -> None:
         # silently orphaning (build-spec §8 step 2 -- inspected before dropping).
         if "workspaces" in existing_tables:
             _fold_workspace_into_product(conn, insp)
+        if "outcomes" in existing_tables:
+            _migrate_outcome_active_to_retired_at(conn)
+
+
+def _migrate_outcome_active_to_retired_at(conn) -> None:
+    """One-time: retire the `outcomes.active` BOOLEAN in favour of `retired_at`.
+
+    build-spec §7 makes `retired_at IS NULL` the active predicate and warns against a
+    denormalised second copy of state that can drift. `active` predates the spec and
+    now says the same thing in a second place, so it is folded in and dropped rather
+    than left to disagree with retired_at. (§0: the doc was written from a description
+    of the schema and does not mention `active` at all -- flagged, folded, not forced.)
+
+    Dropping is not optional housekeeping: `active` is NOT NULL with a Python-side
+    default, so the moment the ORM model stops emitting it every INSERT on an existing
+    DB would fail the NOT NULL constraint. Requires SQLite >= 3.35 (ALTER TABLE DROP
+    COLUMN); the project targets 3.12/ubuntu-latest, which ships 3.45.
+
+    Idempotent: no-ops once the column is gone. Fresh DBs never see it -- create_all
+    builds the table from the model, which has no `active` column.
+    """
+    from sqlalchemy import text
+
+    have = {row[1] for row in conn.execute(text("PRAGMA table_info(outcomes)")).fetchall()}
+    if "active" not in have or "retired_at" not in have:
+        return
+    # Deactivated rows become retired rows. The real retirement instant was never
+    # recorded, so stamp migration-time: created_at would falsely imply the outcome was
+    # never active at all, which is worse than a known-approximate timestamp.
+    conn.execute(
+        text("UPDATE outcomes SET retired_at = :now WHERE active = 0 AND retired_at IS NULL"),
+        {"now": datetime.now(timezone.utc).isoformat()},
+    )
+    conn.execute(text("ALTER TABLE outcomes DROP COLUMN active"))
 
 
 def _fold_workspace_into_product(conn, insp) -> None:
@@ -184,6 +227,42 @@ def _backfill_session_authorship() -> None:
         session.execute(
             update(SessionModel)
             .where(SessionModel.author_member_id.is_(None))
+            .values(author_member_id=member.id)
+        )
+        session.commit()
+    finally:
+        session.close()
+
+
+def _backfill_outcome_authorship() -> None:
+    """Every existing Outcome authored to the account's default Member (build-spec §7
+    backfill note; Wave 1 item 4). Same shape as _backfill_session_authorship.
+
+    Idempotent: only touches rows where author_member_id IS NULL. No-ops if there is no
+    Member yet -- _backfill_membership runs first in init_db and creates one whenever a
+    Product exists.
+
+    Deliberately NOT inherited from the outcome's session author: single-tenant they are
+    the same member, and once Phase 5 lands multiple members an outcome's author is
+    whoever produced it, not whoever opened the room. Guessing that now would bake in a
+    wrong rule that reads as deliberate later.
+    """
+    from sqlalchemy import update
+
+    from pmqs import members as members_repo
+    from pmqs.models import Member, Outcome
+
+    session = SessionLocal()
+    try:
+        pending = session.query(Outcome).filter(Outcome.author_member_id.is_(None)).first() is not None
+        if not pending:
+            return
+        member = session.query(Member).first()
+        if member is None:
+            member = members_repo.get_or_create_default_member(session)
+        session.execute(
+            update(Outcome)
+            .where(Outcome.author_member_id.is_(None))
             .values(author_member_id=member.id)
         )
         session.commit()

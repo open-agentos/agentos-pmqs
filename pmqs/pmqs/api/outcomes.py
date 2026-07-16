@@ -129,4 +129,6 @@ def deactivate_outcome(outcome_id: str, db: OrmSession = Depends(get_session)):
     o = repository.deactivate_outcome(db, outcome_id)
     if o is None:
         return JSONResponse({"error": "not found"}, status_code=404)
-    return JSONResponse({"id": o.id, "active": o.active})
+    # `active` is now derived from retired_at (build-spec §7) rather than stored; the
+    # response keeps it for existing callers and adds the timestamp behind it.
+    return JSONResponse({"id": o.id, "active": o.active, "retired_at": o.retired_at})
