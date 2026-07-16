@@ -26,6 +26,7 @@ def init_db() -> None:
     _apply_light_migrations()
     _backfill_default_product()
     _backfill_membership()
+    _backfill_session_authorship()
 
 
 def _apply_light_migrations() -> None:
@@ -37,7 +38,11 @@ def _apply_light_migrations() -> None:
 
     additions = {
         "questions": [("origin_session_id", "TEXT"), ("product_id", "TEXT")],
-        "sessions": [("product_id", "TEXT")],
+        "sessions": [
+            ("product_id", "TEXT"),
+            ("author_member_id", "TEXT"),
+            ("visibility", "TEXT NOT NULL DEFAULT 'shared'"),
+        ],
         "outcomes": [("product_id", "TEXT")],
         "news_items": [("product_id", "TEXT")],
         "products": [
@@ -152,6 +157,36 @@ def _backfill_membership() -> None:
         member = members_repo.get_or_create_default_member(session)
         for product in products:
             members_repo.ensure_membership(session, member=member, product=product, role="owner")
+    finally:
+        session.close()
+
+
+def _backfill_session_authorship() -> None:
+    """Every existing Session authored to the account's default Member (build-spec
+    §7 backfill note; Wave 1 item 3). Idempotent: only touches rows where
+    author_member_id IS NULL. No-ops if there is no Member yet (nothing to backfill
+    onto -- _backfill_membership runs first in init_db and creates one whenever a
+    Product exists).
+    """
+    from sqlalchemy import update
+
+    from pmqs import members as members_repo
+    from pmqs.models import Member, Session as SessionModel
+
+    session = SessionLocal()
+    try:
+        pending = session.query(SessionModel).filter(SessionModel.author_member_id.is_(None)).first() is not None
+        if not pending:
+            return
+        member = session.query(Member).first()
+        if member is None:
+            member = members_repo.get_or_create_default_member(session)
+        session.execute(
+            update(SessionModel)
+            .where(SessionModel.author_member_id.is_(None))
+            .values(author_member_id=member.id)
+        )
+        session.commit()
     finally:
         session.close()
 
