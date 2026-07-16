@@ -40,51 +40,50 @@ def client():
     app.dependency_overrides.clear()
 
 
-def _make_workspace(client, org, repo, nickname=None):
+def _make_product(client, org, repo, nickname=None):
     db = client._session_factory()
-    product = products.get_or_create_product(db, org=org, repo=repo)
-    ws = products.create_workspace(db, product=product, nickname=nickname)
+    product = products.get_or_create_product(db, org=org, repo=repo, nickname=nickname)
     db.close()
-    return ws
+    return product
 
 
-def test_switcher_lists_every_workspace_and_marks_current(client):
-    ws_a = _make_workspace(client, "acme", "widgets", nickname="Widgets")
-    ws_b = _make_workspace(client, "acme", "gizmos", nickname="Gizmos")
+def test_switcher_lists_every_product_and_marks_current(client):
+    p_a = _make_product(client, "acme", "widgets", nickname="Widgets")
+    p_b = _make_product(client, "acme", "gizmos", nickname="Gizmos")
 
-    page = client.get(f"/w/{ws_b.slug}/").text
-    assert f'href="/w/{ws_a.slug}/">Widgets</a>' in page
-    assert f'href="/w/{ws_b.slug}/">Gizmos</a>' in page
-    # Current workspace's item carries the "current" class; the other doesn't.
-    assert f'class="ps-item current" href="/w/{ws_b.slug}/"' in page
-    assert f'class="ps-item" href="/w/{ws_a.slug}/"' in page
+    page = client.get(f"/w/{p_b.slug}/").text
+    assert f'href="/w/{p_a.slug}/">Widgets</a>' in page
+    assert f'href="/w/{p_b.slug}/">Gizmos</a>' in page
+    # Current product's item carries the "current" class; the other doesn't.
+    assert f'class="ps-item current" href="/w/{p_b.slug}/"' in page
+    assert f'class="ps-item" href="/w/{p_a.slug}/"' in page
 
 
-def test_switcher_current_name_reflects_active_workspace(client):
-    ws_a = _make_workspace(client, "acme", "widgets", nickname="Widgets")
-    _make_workspace(client, "acme", "gizmos", nickname="Gizmos")
+def test_switcher_current_name_reflects_active_product(client):
+    p_a = _make_product(client, "acme", "widgets", nickname="Widgets")
+    _make_product(client, "acme", "gizmos", nickname="Gizmos")
 
-    page = client.get(f"/w/{ws_a.slug}/").text
+    page = client.get(f"/w/{p_a.slug}/").text
     assert 'id="ps-current"' in page
     assert "Widgets" in page.split('id="ps-current"')[1][:200]
 
 
 def test_switcher_has_add_product_form(client):
-    _make_workspace(client, "acme", "widgets")
+    _make_product(client, "acme", "widgets")
     page = client.get("/").text
     assert '<form class="ps-add-form" method="post" action="/products"' in page
     assert 'name="repo"' in page
 
 
-def test_legacy_view_shows_switcher_scoped_to_default_workspace(client):
+def test_legacy_view_shows_switcher_scoped_to_default_product(client):
     # No slug in the URL at all -- render_inbox is still called with db= so the
-    # switcher renders, just anchored on the account's default (oldest) workspace.
-    ws_default = _make_workspace(client, "open-agentos", "agentos-pmqs")
-    _make_workspace(client, "open-agentos", "agentos")
+    # switcher renders, just anchored on the account's default (oldest) product.
+    p_default = _make_product(client, "open-agentos", "agentos-pmqs")
+    _make_product(client, "open-agentos", "agentos")
 
     page = client.get("/").text
     assert 'id="product-switcher"' in page
-    assert f'class="ps-item current" href="/w/{ws_default.slug}/"' in page
+    assert f'class="ps-item current" href="/w/{p_default.slug}/"' in page
 
 
 def test_render_inbox_without_db_falls_back_to_static_fixture(monkeypatch):
@@ -95,7 +94,7 @@ def test_render_inbox_without_db_falls_back_to_static_fixture(monkeypatch):
 
 
 def test_switcher_has_inert_portfolio_placeholder(client):
-    _make_workspace(client, "acme", "widgets")
+    _make_product(client, "acme", "widgets")
     page = client.get("/").text
     assert 'class="ps-item ps-portfolio"' in page
     assert ">Portfolio<" in page

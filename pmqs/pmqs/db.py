@@ -24,7 +24,7 @@ def init_db() -> None:
 
     Base.metadata.create_all(engine)
     _apply_light_migrations()
-    _backfill_default_workspace()
+    _backfill_default_product()
     _backfill_membership()
 
 
@@ -36,10 +36,16 @@ def _apply_light_migrations() -> None:
     from sqlalchemy import inspect, text
 
     additions = {
-        "questions": [("origin_session_id", "TEXT"), ("workspace_id", "TEXT")],
-        "sessions": [("workspace_id", "TEXT")],
-        "outcomes": [("workspace_id", "TEXT")],
-        "news_items": [("workspace_id", "TEXT")],
+        "questions": [("origin_session_id", "TEXT"), ("product_id", "TEXT")],
+        "sessions": [("product_id", "TEXT")],
+        "outcomes": [("product_id", "TEXT")],
+        "news_items": [("product_id", "TEXT")],
+        "products": [
+            ("slug", "TEXT"),
+            ("nickname", "TEXT"),
+            ("lens_weights", "TEXT"),
+            ("archived", "BOOLEAN DEFAULT 0"),
+        ],
     }
     insp = inspect(engine)
     existing_tables = set(insp.get_table_names())
@@ -51,20 +57,57 @@ def _apply_light_migrations() -> None:
             for name, coltype in cols:
                 if name not in have:
                     conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {coltype}'))
-    # Note: `settings` (Setting) is NOT scoped to workspace_id yet -- its primary key
-    # is a bare `key`, and rewriting that to a composite (workspace_id, key) key needs
-    # a table rebuild rather than an additive column, which felt like more risk than
-    # this pass warranted. LLM/context-budget config stays account-wide for now; the
-    # per-product news watchlist follow-up is tracked as a known gap, not forgotten.
+        # Fold-forward: rows created before this migration have workspace_id on the
+        # hosted-store tables (pre-#8-step-2 schema) but no product_id yet. If the old
+        # `workspaces` table is still present, copy each row's product_id through
+        # its old workspace_id so existing data survives the rename instead of
+        # silently orphaning (build-spec §8 step 2 -- inspected before dropping).
+        if "workspaces" in existing_tables:
+            _fold_workspace_into_product(conn, insp)
 
 
-def _backfill_default_workspace() -> None:
+def _fold_workspace_into_product(conn, insp) -> None:
+    """One-time fold: copy each `workspaces` row's slug/nickname/lens_weights/archived
+    onto its `product` row, repoint every workspace_id-carrying row at that product_id,
+    then drop the now-empty `workspaces` table. Runs once per DB (skips if
+    `workspaces` is already gone -- see caller).
+    """
+    from sqlalchemy import text
+
+    ws_cols = {c["name"] for c in insp.get_columns("workspaces")}
+    if not {"id", "product_id", "slug"}.issubset(ws_cols):
+        return  # unexpected shape; don't guess, leave for manual inspection
+    rows = conn.execute(text("SELECT id, product_id, slug, nickname, lens_weights, archived FROM workspaces")).fetchall()
+    for ws_id, product_id, slug, nickname, lens_weights, archived in rows:
+        if product_id is None:
+            continue
+        conn.execute(
+            text(
+                "UPDATE products SET slug = COALESCE(slug, :slug), "
+                "nickname = COALESCE(nickname, :nickname), "
+                "lens_weights = COALESCE(lens_weights, :lens_weights), "
+                "archived = :archived WHERE id = :pid"
+            ),
+            {"slug": slug, "nickname": nickname, "lens_weights": lens_weights,
+             "archived": bool(archived), "pid": product_id},
+        )
+        for table in ("questions", "sessions", "outcomes", "news_items"):
+            table_cols = {c["name"] for c in insp.get_columns(table)}
+            if "workspace_id" in table_cols:
+                conn.execute(
+                    text(f"UPDATE {table} SET product_id = :pid WHERE workspace_id = :wid AND product_id IS NULL"),
+                    {"pid": product_id, "wid": ws_id},
+                )
+    conn.execute(text("DROP TABLE workspaces"))
+
+
+def _backfill_default_product() -> None:
     """Assign every pre-multi-product row (Question/Outcome/Session/NewsItem created
-    before the Product/Workspace model existed, or since, via a code path that hasn't
-    been threaded through to a specific workspace yet) to the account's default
-    Workspace, creating one against config.AGENTOS_REPO if none exists yet.
+    before the Product model existed, or since, via a code path that hasn't been
+    threaded through to a specific product yet) to the account's default Product,
+    creating one against config.AGENTOS_REPO if none exists yet.
 
-    Idempotent and cheap to no-op: only touches rows where workspace_id IS NULL.
+    Idempotent and cheap to no-op: only touches rows where product_id IS NULL.
     """
     from sqlalchemy import update
 
@@ -75,15 +118,15 @@ def _backfill_default_workspace() -> None:
     session = SessionLocal()
     try:
         pending = any(
-            session.query(model).filter(model.workspace_id.is_(None)).first() is not None
+            session.query(model).filter(model.product_id.is_(None)).first() is not None
             for model in (Question, Outcome, SessionModel, NewsItem)
         )
         if not pending:
             return
-        ws = products.get_or_create_default_workspace(session)
+        product = products.get_or_create_default_product(session)
         for model in (Question, Outcome, SessionModel, NewsItem):
             session.execute(
-                update(model).where(model.workspace_id.is_(None)).values(workspace_id=ws.id)
+                update(model).where(model.product_id.is_(None)).values(product_id=product.id)
             )
         session.commit()
     finally:

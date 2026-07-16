@@ -40,7 +40,7 @@ def hits_to_candidates(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return candidates
 
 
-def generate(db: OrmSession, state: dict[str, Any], triggers=None, *, workspace_id: str | None = None) -> list:
+def generate(db: OrmSession, state: dict[str, Any], triggers=None, *, product_id: str | None = None) -> list:
     """Full pass: triggers -> frame -> dedup -> persist -> score. Returns Questions."""
     hits = run_triggers(state, triggers)
     candidates = dedup(hits_to_candidates(hits))
@@ -54,7 +54,7 @@ def generate(db: OrmSession, state: dict[str, Any], triggers=None, *, workspace_
             evidence=cand["evidence"],
             source=cand["source"],
             status="proposed",
-            workspace_id=workspace_id,
+            product_id=product_id,
         )
         score, dims = scoring.score_question(q)
         repository.set_question_score(db, q.id, score, dims)
@@ -62,28 +62,26 @@ def generate(db: OrmSession, state: dict[str, Any], triggers=None, *, workspace_
     return questions
 
 
-def seed_workspace(db: OrmSession, workspace) -> list:
-    """Run one immediate structural-lens pass for a freshly-created Workspace (#54).
+def seed_workspace(db: OrmSession, product) -> list:
+    """Run one immediate structural-lens pass for a freshly-created Product (#54).
 
     Reuses the same trigger/frame/dedup/score pipeline as the daily scheduled batch --
-    this just fires it once, synchronously, at Workspace-creation time, so a newly
+    this just fires it once, synchronously, at Product-creation time, so a newly
     added product's inbox isn't empty until tomorrow's run. Reads live substrate state
-    from the Workspace's own Product (not config.AGENTOS_REPO), which is what makes
+    from the Product's own repo (not config.AGENTOS_REPO), which is what makes
     this correct for a second/third product rather than re-scanning the default repo.
 
     Framing/dedup are LLM-backed but PMQS_LLM_MODE=off (tests, and any deployment
     without a configured provider) keeps them deterministic stubs -- a fetch failure
-    against the target repo surfaces as an empty seed rather than blocking Workspace
+    against the target repo surfaces as an empty seed rather than blocking Product
     creation.
     """
     from pmqs.agentos_client import AgentOSClient, AgentOSClientError
-    from pmqs import products as products_mod
 
-    product = products_mod.get_product(db, workspace.product_id)
     if product is None:
         return []
     try:
         state = AgentOSClient(repo=product.full_name).get_state()
     except AgentOSClientError:
         return []
-    return generate(db, state, workspace_id=workspace.id)
+    return generate(db, state, product_id=product.id)

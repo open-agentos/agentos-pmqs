@@ -1,4 +1,4 @@
-"""Tests for workspace-scoped routing under /w/{workspace_slug}/... (issue #56)."""
+"""Tests for product-scoped routing under /w/{workspace_slug}/... (issue #56)."""
 import os
 
 os.environ["PMQS_LLM_MODE"] = "off"
@@ -39,25 +39,24 @@ def client():
     app.dependency_overrides.clear()
 
 
-def _make_workspace(client, org, repo, nickname=None):
+def _make_product(client, org, repo, nickname=None):
     db = client._session_factory()
-    product = products.get_or_create_product(db, org=org, repo=repo)
-    ws = products.create_workspace(db, product=product, nickname=nickname)
+    product = products.get_or_create_product(db, org=org, repo=repo, nickname=nickname)
     db.close()
-    return ws
+    return product
 
 
-def test_scoped_inbox_only_shows_that_workspaces_questions(client):
-    ws_a = _make_workspace(client, "acme", "widgets")
-    ws_b = _make_workspace(client, "acme", "gizmos")
+def test_scoped_inbox_only_shows_that_products_questions(client):
+    p_a = _make_product(client, "acme", "widgets")
+    p_b = _make_product(client, "acme", "gizmos")
 
     db = client._session_factory()
-    repository.create_question(db, title="Widgets question", source="pm", workspace_id=ws_a.id)
-    repository.create_question(db, title="Gizmos question", source="pm", workspace_id=ws_b.id)
+    repository.create_question(db, title="Widgets question", source="pm", product_id=p_a.id)
+    repository.create_question(db, title="Gizmos question", source="pm", product_id=p_b.id)
     db.close()
 
-    r_a = client.get(f"/w/{ws_a.slug}/")
-    r_b = client.get(f"/w/{ws_b.slug}/")
+    r_a = client.get(f"/w/{p_a.slug}/")
+    r_b = client.get(f"/w/{p_b.slug}/")
     assert "Widgets question" in r_a.text
     assert "Gizmos question" not in r_a.text
     assert "Gizmos question" in r_b.text
@@ -69,22 +68,22 @@ def test_unknown_workspace_slug_is_404(client):
     assert r.status_code == 404
 
 
-def test_scoped_quick_add_lands_in_the_right_workspace(client):
-    ws_a = _make_workspace(client, "acme", "widgets")
-    ws_b = _make_workspace(client, "acme", "gizmos")
+def test_scoped_quick_add_lands_in_the_right_product(client):
+    p_a = _make_product(client, "acme", "widgets")
+    p_b = _make_product(client, "acme", "gizmos")
 
-    r = client.post(f"/w/{ws_a.slug}/quick-add", data={"title": "New idea"}, follow_redirects=False)
+    r = client.post(f"/w/{p_a.slug}/quick-add", data={"title": "New idea"}, follow_redirects=False)
     assert r.status_code == 303
-    assert r.headers["location"] == f"/w/{ws_a.slug}/"
+    assert r.headers["location"] == f"/w/{p_a.slug}/"
 
     db = client._session_factory()
-    assert len(repository.list_questions(db, workspace_id=ws_a.id)) == 1
-    assert len(repository.list_questions(db, workspace_id=ws_b.id)) == 0
+    assert len(repository.list_questions(db, product_id=p_a.id)) == 1
+    assert len(repository.list_questions(db, product_id=p_b.id)) == 0
     db.close()
 
 
 def test_legacy_unprefixed_routes_still_work_unchanged(client):
-    # No workspace_slug at all -- pre-#56 behaviour: falls back to whatever workspace(s)
+    # No product slug at all -- pre-#56 behaviour: falls back to whatever product(s)
     # exist, doesn't 404, doesn't require a slug.
     r = client.post("/quick-add", data={"title": "Legacy add"}, follow_redirects=False)
     assert r.status_code == 303
@@ -95,31 +94,31 @@ def test_legacy_unprefixed_routes_still_work_unchanged(client):
     assert "Legacy add" in r2.text
 
 
-def test_scoped_outcomes_ledger_isolated_per_workspace(client):
-    ws_a = _make_workspace(client, "acme", "widgets")
-    ws_b = _make_workspace(client, "acme", "gizmos")
+def test_scoped_outcomes_ledger_isolated_per_product(client):
+    p_a = _make_product(client, "acme", "widgets")
+    p_b = _make_product(client, "acme", "gizmos")
 
     db = client._session_factory()
-    repository.create_outcome(db, type="document", payload={"title": "A doc"}, workspace_id=ws_a.id)
-    repository.create_outcome(db, type="document", payload={"title": "B doc"}, workspace_id=ws_b.id)
+    repository.create_outcome(db, type="document", payload={"title": "A doc"}, product_id=p_a.id)
+    repository.create_outcome(db, type="document", payload={"title": "B doc"}, product_id=p_b.id)
     db.close()
 
-    r_a = client.get(f"/w/{ws_a.slug}/api/outcomes")
-    r_b = client.get(f"/w/{ws_b.slug}/api/outcomes")
+    r_a = client.get(f"/w/{p_a.slug}/api/outcomes")
+    r_b = client.get(f"/w/{p_b.slug}/api/outcomes")
     assert len(r_a.json()) == 1
     assert len(r_b.json()) == 1
 
 
-def test_scoped_workspace_open_creates_session_in_that_workspace(client):
-    ws_a = _make_workspace(client, "acme", "widgets")
+def test_scoped_workspace_open_creates_session_in_that_product(client):
+    p_a = _make_product(client, "acme", "widgets")
 
-    r = client.post(f"/w/{ws_a.slug}/workspace/open", data={}, follow_redirects=False)
+    r = client.post(f"/w/{p_a.slug}/workspace/open", data={}, follow_redirects=False)
     assert r.status_code == 303
     loc = r.headers["location"]
-    assert loc.startswith(f"/w/{ws_a.slug}/workspace/")
+    assert loc.startswith(f"/w/{p_a.slug}/workspace/")
 
     session_id = loc.rsplit("/", 1)[-1]
     db = client._session_factory()
     sess = repository.get_session_row(db, session_id)
-    assert sess.workspace_id == ws_a.id
+    assert sess.product_id == p_a.id
     db.close()

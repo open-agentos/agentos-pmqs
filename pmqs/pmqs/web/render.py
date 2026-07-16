@@ -129,7 +129,7 @@ _PS_ITEMS_RE = re.compile(
 
 
 def _apply_product_switcher(src: str, db: Any, workspace_slug: str | None) -> str:
-    """Splice the current product name + the list of the account's other workspaces
+    """Splice the current product name + the list of the account's other products
     into the switcher markup. Safe to call even if the switcher markup isn't present
     (e.g. an older template) -- a 0-match splice is a silent no-op, not a crash, since
     unlike the load-bearing anchors in TEMPLATE-CONTRACT.md this one degrades to the
@@ -137,24 +137,24 @@ def _apply_product_switcher(src: str, db: Any, workspace_slug: str | None) -> st
     """
     from pmqs import products
 
-    workspaces = products.list_workspaces(db)
-    if not workspaces:
+    all_products = products.list_products(db)
+    if not all_products:
         return src  # nothing to show yet (e.g. DB not initialised in this render path)
 
     current = None
     if workspace_slug is not None:
-        current = next((w for w in workspaces if w.slug == workspace_slug), None)
+        current = next((p for p in all_products if p.slug == workspace_slug), None)
     if current is None:
-        current = workspaces[0]  # legacy unprefixed view -> account's default workspace
+        current = all_products[0]  # legacy unprefixed view -> account's default product
 
-    current_name = html.escape(products.workspace_display_name(db, current))
+    current_name = html.escape(products.product_display_name(db, current))
     src = _PS_CURRENT_RE.sub(lambda m: f"{m.group(1)}\n            {current_name} {m.group(3)}", src, count=1)
 
     items = []
-    for ws in workspaces:
-        name = html.escape(products.workspace_display_name(db, ws))
-        cls = "ps-item current" if ws.id == current.id else "ps-item"
-        items.append(f'<a class="{cls}" href="/w/{ws.slug}/">{name}</a>')
+    for p in all_products:
+        name = html.escape(products.product_display_name(db, p))
+        cls = "ps-item current" if p.id == current.id else "ps-item"
+        items.append(f'<a class="{cls}" href="/w/{p.slug}/">{name}</a>')
     items_html = "\n            ".join(items)
     src = _PS_ITEMS_RE.sub(lambda m: f"{m.group(1)}\n            {items_html}\n            {m.group(3)}", src, count=1)
     return src
@@ -578,22 +578,22 @@ def _ledger_item_html(o: Any, payload: dict) -> str:
     )
 
 
-def render_outcomes(db: Any, template_path: Path | None = None, *, workspace_id: str | None = None,
+def render_outcomes(db: Any, template_path: Path | None = None, *, product_id: str | None = None,
                     workspace_slug: str | None = None) -> str:
     """Splice real outcome rows + summary counts into the template's Outcomes view.
 
     Mirrors the Inbox wiring: replace the static ledger fixtures and the summary-strip
-    numbers with real data. Inbox/Workspace views preserved. `workspace_id` scopes the
-    ledger to one product (see #56); omitted, it shows every workspace's outcomes --
-    the pre-multi-product behaviour existing callers still rely on. `workspace_slug`
+    numbers with real data. Inbox/Workspace views preserved. `product_id` scopes the
+    ledger to one product; omitted, it shows every product's outcomes -- the
+    pre-multi-product behaviour existing callers still rely on. `workspace_slug`
     (#55) drives the Product switcher and keeps the Inbox-nav link inside the same
-    workspace.
+    product.
     """
     from pmqs import repository
 
     src = _load_template(template_path)
     src = _apply_product_switcher(src, db, workspace_slug)
-    outcomes = repository.list_outcomes(db, workspace_id=workspace_id)
+    outcomes = repository.list_outcomes(db, product_id=product_id)
     # newest first by created_at
     outcomes = sorted(outcomes, key=lambda o: getattr(o, "created_at", ""), reverse=True)
 

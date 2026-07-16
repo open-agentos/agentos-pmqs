@@ -39,13 +39,13 @@ def client():
     app.dependency_overrides.clear()
 
 
-def test_add_product_creates_product_and_workspace(client):
+def test_add_product_creates_product(client):
     r = client.post("/products", data={"repo": "open-agentos/agentos"}, follow_redirects=False)
     assert r.status_code == 303
 
     db = client._session_factory()
-    workspaces = products.list_workspaces(db)
-    repos = {products.get_product(db, ws.product_id).full_name for ws in workspaces}
+    all_products = products.list_products(db)
+    repos = {p.full_name for p in all_products}
     assert "open-agentos/agentos" in repos
     db.close()
 
@@ -56,15 +56,15 @@ def test_add_product_rejects_malformed_repo_ref(client):
     assert "product_error" in r.headers["location"]
 
 
-def test_add_product_twice_shares_product_but_makes_two_workspaces(client):
+def test_add_product_twice_resolves_to_the_same_product(client):
     client.post("/products", data={"repo": "open-agentos/agentos", "nickname": "First"})
     client.post("/products", data={"repo": "open-agentos/agentos", "nickname": "Second"})
 
     db = client._session_factory()
-    workspaces = [ws for ws in products.list_workspaces(db) if ws.nickname in ("First", "Second")]
-    assert len(workspaces) == 2
-    assert workspaces[0].product_id == workspaces[1].product_id  # shared Product row
-    assert workspaces[0].id != workspaces[1].id  # separate Workspaces
+    matching = [p for p in products.list_products(db) if p.full_name == "open-agentos/agentos"]
+    # Adding the same repo twice resolves to ONE Product row (Membership, not a
+    # second Product row, is how sharing across PMs works -- see models.Product).
+    assert len(matching) == 1
     db.close()
 
 
