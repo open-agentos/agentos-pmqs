@@ -25,6 +25,7 @@ def init_db() -> None:
     Base.metadata.create_all(engine)
     _apply_light_migrations()
     _backfill_default_workspace()
+    _backfill_membership()
 
 
 def _apply_light_migrations() -> None:
@@ -85,6 +86,29 @@ def _backfill_default_workspace() -> None:
                 update(model).where(model.workspace_id.is_(None)).values(workspace_id=ws.id)
             )
         session.commit()
+    finally:
+        session.close()
+
+
+def _backfill_membership() -> None:
+    """One Member row for the existing single-tenant user; one Membership per
+    existing Product, role 'owner' (build-spec Wave 1 item 1 / §8 step 1).
+
+    Idempotent: `members.get_or_create_default_member` reuses the existing stub
+    Member, and `ensure_membership` no-ops if the (member, product) row already
+    exists. Cheap to no-op when there are no products yet.
+    """
+    from pmqs import members as members_repo
+    from pmqs.models import Product
+
+    session = SessionLocal()
+    try:
+        products = list(session.query(Product).all())
+        if not products:
+            return
+        member = members_repo.get_or_create_default_member(session)
+        for product in products:
+            members_repo.ensure_membership(session, member=member, product=product, role="owner")
     finally:
         session.close()
 
