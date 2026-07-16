@@ -61,6 +61,8 @@ class Session(Base):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
     product_id: Mapped[str | None] = mapped_column(ForeignKey("products.id"))
+    author_member_id: Mapped[str | None] = mapped_column(ForeignKey("members.id"))
+    visibility: Mapped[str] = mapped_column(Text, nullable=False, default="shared")  # 'shared' | 'private'
     topic: Mapped[str | None] = mapped_column(Text)
     question_id: Mapped[str | None] = mapped_column(ForeignKey("questions.id"))
     parent_id: Mapped[str | None] = mapped_column(ForeignKey("sessions.id"))  # branching

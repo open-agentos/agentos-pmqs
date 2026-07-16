@@ -133,10 +133,22 @@ def set_question_score(db: OrmSession, qid: str, score: float, dims: dict[str, A
 # --- Sessions (Phase 2 war-room) ---
 def open_session(db: OrmSession, *, topic: str | None = None,
                  question_id: str | None = None, parent_id: str | None = None,
-                 product_id: str | None = None) -> Session:
+                 product_id: str | None = None, author_member_id: str | None = None,
+                 visibility: str = "shared") -> Session:
+    """Open a new war-room Session.
+
+    `author_member_id` defaults to the account's stub Member if not given (single-
+    tenant until Phase 5 auth -- see members.get_or_create_default_member).
+    `visibility` defaults to 'shared' per build-spec §4 rule 1 ("A Workspace is
+    shared by default; it may be created private").
+    """
+    from pmqs import members as members_repo
+
     s = Session(
         topic=topic, question_id=question_id, parent_id=parent_id, status="open",
         product_id=product_id or _resolve_product_id(db),
+        author_member_id=author_member_id or members_repo.get_or_create_default_member(db).id,
+        visibility=visibility,
     )
     db.add(s)
     db.commit()
@@ -145,6 +157,20 @@ def open_session(db: OrmSession, *, topic: str | None = None,
 
 def get_session_row(db: OrmSession, sid: str) -> Session | None:
     return db.get(Session, sid)
+
+
+def get_visible_session_row(db: OrmSession, sid: str, *, member_id: str | None) -> Session | None:
+    """Fetch a Session enforcing build-spec §4's visibility rule: a private session
+    is retrievable only by its author. Returns None if the session doesn't exist OR
+    exists but is private and `member_id` isn't its author -- callers can't tell the
+    two apart, which is the point (no leaking existence of a private room).
+    """
+    s = db.get(Session, sid)
+    if s is None:
+        return None
+    if s.visibility == "private" and s.author_member_id != member_id:
+        return None
+    return s
 
 
 def find_open_session_for_question(db: OrmSession, question_id: str) -> Session | None:
