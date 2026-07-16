@@ -19,8 +19,14 @@ def get_or_create_default_member(db: OrmSession) -> Member:
 
     Single-tenant until Phase 5 auth attaches real identities via
     `external_subject` — see build-spec §7 backfill note.
+
+    Ordered by created_at, not bare .first(): from Wave 2 item 5 onward more than one
+    Member can exist (colleagues in a Product), and an unordered .first() would make "who
+    is the account owner?" depend on SQLite's row order. Oldest Member wins -- the account
+    owner is by construction the first one created, since every other Member arrives via
+    a Product they were invited to. `id` breaks ties so the answer is total.
     """
-    existing = db.scalars(select(Member)).first()
+    existing = db.scalars(select(Member).order_by(Member.created_at, Member.id)).first()
     if existing is not None:
         return existing
     member = Member(display_name=DEFAULT_MEMBER_DISPLAY_NAME)
@@ -50,3 +56,15 @@ def ensure_membership(
 
 def list_memberships(db: OrmSession, *, member_id: str) -> list[Membership]:
     return list(db.scalars(select(Membership).where(Membership.member_id == member_id)))
+
+
+def current_member_id(db: OrmSession) -> str:
+    """The member acting in this request.
+
+    THE PHASE 5 AUTH SEAM. Until real identities attach (build-spec §7), every request
+    resolves to the account's single stub Member. Callers that need "who is asking?" --
+    member-scoped Inbox reads, private-Workspace visibility, the promote action -- go
+    through here rather than reaching for get_or_create_default_member() directly, so
+    Phase 5 has exactly one function to replace instead of a scavenger hunt.
+    """
+    return get_or_create_default_member(db).id

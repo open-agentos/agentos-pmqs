@@ -64,3 +64,57 @@ def test_policy_ledger_item_never_shows_github(db):
     region = m.group(1)
     # the policy row must not carry any github link
     assert "github.com" not in region
+
+
+# --- Wave 2 item 5: authorship display + visibility-filtered ledger ---
+
+def test_ledger_rows_show_their_author(db):
+    """"Each row shows its author" (item 5 acceptance). The ledger is Product-wide, so a
+    row may be a colleague's -- "who decided this" is half the point of sharing it."""
+    from pmqs import members
+    from pmqs.models import Member
+
+    members.get_or_create_default_member(db)  # the account owner exists first
+    colleague = Member(display_name="Ada")
+    db.add(colleague)
+    db.commit()
+    session = repository.open_session(db, topic="q", author_member_id=colleague.id)
+    repository.create_outcome(db, type="policy", payload={"text": "never ship fridays"},
+                              session_id=session.id, author_member_id=colleague.id)
+
+    out = render_outcomes(db)
+    assert "Ada" in out
+
+
+def test_ledger_hides_another_members_private_room(db):
+    """The renderer must apply §4's visibility resolution, not just product scope."""
+    from pmqs import members
+    from pmqs.models import Member
+
+    members.get_or_create_default_member(db)  # the viewer -- must exist before Ada
+    colleague = Member(display_name="Ada")
+    db.add(colleague)
+    db.commit()
+    private = repository.open_session(db, topic="q", author_member_id=colleague.id,
+                                      visibility="private")
+    repository.create_outcome(db, type="policy", payload={"text": "SECRET private policy"},
+                              session_id=private.id, author_member_id=colleague.id)
+
+    out = render_outcomes(db)
+    assert "SECRET private policy" not in out
+
+
+def test_author_name_is_escaped(db):
+    from pmqs import members
+    from pmqs.models import Member
+
+    members.get_or_create_default_member(db)
+    nasty = Member(display_name='<script>alert(1)</script>')
+    db.add(nasty)
+    db.commit()
+    session = repository.open_session(db, topic="q", author_member_id=nasty.id)
+    repository.create_outcome(db, type="policy", payload={"text": "p"},
+                              session_id=session.id, author_member_id=nasty.id)
+
+    out = render_outcomes(db)
+    assert "<script>alert(1)</script>" not in out

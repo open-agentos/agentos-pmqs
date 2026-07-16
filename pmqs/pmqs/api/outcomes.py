@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import products, repository
+from pmqs import members, products, repository
 from pmqs.db import get_session
 from pmqs.outcomes import push_question_to_issue
 from pmqs.outcomes.types import (
@@ -44,6 +44,9 @@ def list_outcomes(workspace_slug: str | None = None, db: OrmSession = Depends(ge
         product_id = products.resolve_product_id(db, workspace_slug)
     except KeyError:
         return JSONResponse({"error": "not found"}, status_code=404)
+    # Product-scoped and visibility-filtered per build-spec §4/§5 -- all members'
+    # outcomes, minus other members' private rooms.
+    viewer_id = members.current_member_id(db)
     return JSONResponse(
         [
             {
@@ -51,8 +54,11 @@ def list_outcomes(workspace_slug: str | None = None, db: OrmSession = Depends(ge
                 "type": o.type,
                 "github_ref": o.github_ref,
                 "created_at": o.created_at,
+                "author_member_id": o.author_member_id,
+                "promoted_at": o.promoted_at,
+                "retired_at": o.retired_at,
             }
-            for o in repository.list_outcomes(db, product_id=product_id)
+            for o in repository.list_ledger_outcomes(db, product_id=product_id, member_id=viewer_id)
         ]
     )
 
@@ -132,3 +138,20 @@ def deactivate_outcome(outcome_id: str, db: OrmSession = Depends(get_session)):
     # `active` is now derived from retired_at (build-spec §7) rather than stored; the
     # response keeps it for existing callers and adds the timestamp behind it.
     return JSONResponse({"id": o.id, "active": o.active, "retired_at": o.retired_at})
+
+
+@router.post("/outcomes/{outcome_id}/promote")
+def promote_outcome(outcome_id: str, db: OrmSession = Depends(get_session)):
+    """Promote a private room's outcome to the Product ledger (build-spec §4 rule 3).
+
+    409 rather than a silent no-op when the Product can already see it: promotion is
+    one-way (§4 rule 4) and there is no demote, so "already shared" is a state the caller
+    was wrong about, not one to shrug at.
+    """
+    try:
+        o = repository.promote_outcome(db, outcome_id)
+    except repository.OutcomeAlreadySharedError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=409)
+    if o is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse({"id": o.id, "promoted_at": o.promoted_at})

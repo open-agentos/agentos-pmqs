@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session as OrmSession
 
 from pmqs.models import NewsItem, Outcome, Question, Session, SessionMessage
@@ -81,6 +81,7 @@ def list_questions(
     source: str | None = None,
     include_all: bool = False,
     product_id: str | None = None,
+    member_id: str | None = None,
 ) -> list[Question]:
     """Ranked Inbox list.
 
@@ -91,10 +92,18 @@ def list_questions(
     products/PMs, see products.py); omitting it returns every product's questions,
     which existing single-product call sites still rely on until #56 threads a real
     product through routing.
+
+    `member_id` scopes to one member's Inbox. THE INBOX IS ALWAYS MEMBER-SCOPED
+    (build-spec §4 rule 5, §5) -- it is the private half of the product, and it stays
+    private even as the Outcomes ledger opens up to the whole Product. Sharing happens
+    when you OPEN a room (§4 rule 6), not while a question is still sitting in your
+    inbox.
     """
     stmt = select(Question)
     if product_id is not None:
         stmt = stmt.where(Question.product_id == product_id)
+    if member_id is not None:
+        stmt = stmt.where(Question.author_member_id == member_id)
     rows = list(db.scalars(stmt))
     if not include_all:
         rows = [q for q in rows if q.status in ("proposed", "saved")]
@@ -321,6 +330,94 @@ def deactivate_outcome(
         o.retired_at = _now()
     if superseded_by_outcome_id is not None:
         o.superseded_by_outcome_id = superseded_by_outcome_id
+    db.commit()
+    return o
+
+
+class OutcomeAlreadySharedError(Exception):
+    """Raised when promoting an Outcome that the Product can already see.
+
+    Promotion is one-way (build-spec §4 rule 4): private -> shared, never the reverse.
+    There is no demote, so promoting something already shared isn't a harmless no-op --
+    it's a sign the caller thinks it is hiding something that is in fact visible.
+    """
+
+
+def outcome_is_shared(db: OrmSession, outcome: Outcome) -> bool:
+    """Resolve an Outcome's visibility (build-spec §4 rule 2 + §7 design note).
+
+    Shared if its Session is shared, or if promoted_at IS NOT NULL. Computed, never
+    stored: §7 forbids a `visibility` column here precisely because a denormalised copy
+    drifts out of sync with the room it came from.
+
+    An Outcome with no Session (created outside a room) has no visibility to inherit, so
+    it follows the same default rooms do -- shared (§4 rule 1). Same for a dangling
+    session_id: absence of a private room is not evidence of privacy.
+    """
+    if outcome.promoted_at is not None:
+        return True
+    if outcome.session_id is None:
+        return True
+    session = db.get(Session, outcome.session_id)
+    if session is None:
+        return True
+    return session.visibility != "private"
+
+
+def list_ledger_outcomes(
+    db: OrmSession, *, product_id: str | None = None, member_id: str | None = None
+) -> list[Outcome]:
+    """The Outcomes ledger: every member's outcomes for this Product, newest first,
+    filtered by §4's visibility resolution for `member_id`.
+
+    This is the shared half of the product (build-spec §5) -- deliberately NOT scoped to
+    the asking member. A colleague's outcomes are the whole point; the ledger is where
+    the content network effect lives.
+
+    Visibility is resolved in SQL rather than by filtering in Python so the ledger stays
+    one query as it grows monotonically. An outcome is visible when ANY of:
+      - it was promoted (§4 rule 3), or
+      - it has no room to inherit privacy from, or
+      - its room is shared, or
+      - its room is private but `member_id` owns it (§3: visible only to its owner).
+    """
+    visible = [
+        Outcome.promoted_at.is_not(None),
+        Outcome.session_id.is_(None),
+        Session.visibility != "private",
+    ]
+    if member_id is not None:
+        # Only add the ownership escape when we actually know who is asking -- otherwise
+        # `author_member_id == None` compiles to IS NULL and would expose every private
+        # room that predates authorship backfill.
+        visible.append(Session.author_member_id == member_id)
+
+    stmt = select(Outcome).outerjoin(Session, Outcome.session_id == Session.id).where(or_(*visible))
+    if product_id is not None:
+        stmt = stmt.where(Outcome.product_id == product_id)
+    stmt = stmt.order_by(Outcome.created_at.desc())
+    return list(db.scalars(stmt))
+
+
+def promote_outcome(db: OrmSession, outcome_id: str) -> Outcome | None:
+    """Promote a private room's Outcome to the Product ledger (build-spec §4 rule 3).
+
+    One of exactly two visibility actions in the whole product (the other being "create
+    this room private"). Stamps promoted_at, which the visibility resolution reads as an
+    override on the room's privacy.
+
+    Raises OutcomeAlreadySharedError if the Product can already see it -- whether because
+    its room is shared or because it was already promoted. Returns None if there's no
+    such outcome.
+    """
+    o = db.get(Outcome, outcome_id)
+    if o is None:
+        return None
+    if outcome_is_shared(db, o):
+        raise OutcomeAlreadySharedError(
+            f"outcome {outcome_id} is already visible to the Product; promotion is one-way"
+        )
+    o.promoted_at = _now()
     db.commit()
     return o
 
