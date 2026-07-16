@@ -93,7 +93,9 @@ def run_session_lenses(db: OrmSession, session: Any) -> list:
         return []
 
     # Phase 3: build the unified context-feed once; feed it into triage + generation.
-    context_block = context_feed.build_context_block(db)
+    # Product-scoped (build-spec §5): this session's product, so a colleague's standing
+    # policies shape the lens pass but another product's never do.
+    context_block = context_feed.build_context_block(db, product_id=session.product_id)
 
     relevant = _triage_lenses(topic, evidence, cfg, context_block)
     candidates = [
