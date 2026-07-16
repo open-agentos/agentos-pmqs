@@ -41,9 +41,20 @@ def create_question(
     score_dims: dict[str, Any] | None = None,
     origin_session_id: str | None = None,
     product_id: str | None = None,
+    author_member_id: str | None = None,
 ) -> Question:
+    """Create a Question (an inbox item).
+
+    `author_member_id` is whose inbox it lands in, and defaults to the account's stub
+    Member (single-tenant until Phase 5 auth), mirroring open_session()/create_outcome().
+    This holds whether the question was raised by the PM, the lens pass, or news: the
+    Inbox is always member-scoped (build-spec §4 rule 5), so every question has an owner.
+    """
+    from pmqs import members as members_repo
+
     q = Question(
         product_id=product_id or _resolve_product_id(db),
+        author_member_id=author_member_id or members_repo.get_or_create_default_member(db).id,
         title=title,
         source=source,
         description=description,

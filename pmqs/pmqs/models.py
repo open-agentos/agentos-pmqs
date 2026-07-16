@@ -31,6 +31,10 @@ class Question(Base):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
     product_id: Mapped[str | None] = mapped_column(ForeignKey("products.id"))
+    # Whose inbox this is. The Inbox is ALWAYS member-scoped (build-spec §4 rule 5, §5) --
+    # it is the private half of the product, and this column is what keeps it private
+    # once Phase 5 puts more than one member in a Product.
+    author_member_id: Mapped[str | None] = mapped_column(ForeignKey("members.id"))
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     lens_tags: Mapped[str] = mapped_column(Text, nullable=False, default="[]")   # JSON array
