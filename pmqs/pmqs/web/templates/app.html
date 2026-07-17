@@ -330,11 +330,10 @@ textarea.set-input{min-height:64px;}
 .artifact-tabs{display:flex;border-bottom:1px solid var(--border-default);flex-shrink:0;}
 /* §6 .tab-item.active. The transparent bottom border reserves the space so
    activating a tab does not shift the strip. */
-.a-tab{padding:11px 18px;font-size:12.5px;color:var(--text-muted);cursor:pointer;
-  border-right:1px solid var(--border-default);border-bottom:2px solid transparent;}
-.a-tab.active{color:var(--accent-gold);background:var(--bg-surface);
-  border-bottom-color:var(--accent-gold);font-weight:600;}
-.a-tab:hover:not(.active){color:var(--text-secondary);}
+.a-tab{padding:11px 16px;font-size:12.5px;color:var(--text-muted);cursor:pointer;
+  border-bottom:2px solid transparent;transition:color .12s,border-color .12s;white-space:nowrap;}
+.a-tab.active{color:var(--accent-gold);border-bottom-color:var(--accent-gold);font-weight:600;}
+.a-tab:hover:not(.active){color:var(--text-secondary);border-bottom-color:var(--border-default);}
 .artifact-body{flex:1;overflow-y:auto;}
 
 .doc{background:var(--paper);color:var(--paper-ink);margin:18px;border-radius:4px;padding:26px 28px;
@@ -345,10 +344,25 @@ textarea.set-input{min-height:64px;}
 .doc-label{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.08em;
   color:var(--paper-muted);margin-bottom:5px;}
 .doc-text{font-family:var(--font-body);font-size:13.5px;line-height:1.6;color:var(--paper-ink);}
-.doc-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
-.doc-box{border:1px solid rgba(42,38,32,0.18);border-radius:4px;padding:12px 14px;}
+.doc-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+.doc-box{border:1px solid rgba(42,38,32,0.18);border-radius:5px;padding:18px 20px;
+  background:rgba(42,38,32,0.025);}
 .doc-box.for{border-left:3px solid var(--accent-teal-dim);}
-.doc-box.against{border-left:3px solid var(--pulse-coral);}
+.doc-box.against{border-left:3px solid var(--pulse-coral-dim);}
+/* Coloured section labels — 4.9:1 on --paper. */
+.doc-box.for .doc-label{color:var(--accent-teal-dim);}
+.doc-box.against .doc-label{color:var(--pulse-coral-dim);}
+/* +/− markers. ::before on .doc-text keeps the markup untouched — the artifact pane's
+   nesting depth is load-bearing (_TAB_PROP_RE counts four literal </div>s). */
+.doc-box .doc-text{position:relative;padding-left:18px;}
+.doc-box .doc-text::before{position:absolute;left:0;top:0;font-family:var(--font-mono);
+  font-weight:500;font-size:13px;line-height:1.6;}
+.doc-box.for .doc-text::before{content:"+";color:var(--accent-teal-dim);}
+.doc-box.against .doc-text::before{content:"\2212";color:var(--pulse-coral-dim);}
+/* The rebuttal is the second label/text pair in each box; mute its marker so the
+   argument stays the thing you read first. */
+.doc-box .doc-label ~ .doc-label{margin-top:14px;}
+.doc-box .doc-label ~ .doc-label + .doc-text::before{opacity:.45;}
 .impact-num{font-family:var(--font-mono);font-size:22px;color:var(--paper-ink);font-weight:500;}
 
 .chart-wrap{margin:18px;padding:20px 22px;background:var(--bg-surface);border:1px solid var(--border-default);border-radius:6px;}
