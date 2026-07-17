@@ -550,14 +550,26 @@ def _apply_tab_counts(src: str, counts: dict[str, int]) -> str:
     return src
 
 
+def _initials(label: str) -> str:
+    """'You' -> 'Y', 'War-room' -> 'WR'. Split on non-letters so hyphens count."""
+    words = [w for w in re.split(r"[^A-Za-z]+", label) if w]
+    return "".join(w[0] for w in words[:2]).upper() or "?"
+
+
 def _msg_html(m: Any) -> str:
     role = getattr(m, "role", "system")
     cls = "pm" if role == "pm" else "system"
     label = "You" if role == "pm" else ("System" if role == "system" else "War-room")
     bubble = "pm-bubble" if role == "pm" else "sys-bubble"
+    # #109: avatar + .msg-col are new children of .msg. Safe because _CONVO_RE replaces
+    # the whole .convo-scroll region -- it anchors on that class and .convo-input, not on
+    # anything inside a message. The template's CSS is changed in the same commit.
     return (
-        f'<div class="msg {cls}"><div class="msg-label">{label}</div>'
-        f'<div class="msg-body {bubble}">{html.escape(getattr(m, "content", ""))}</div></div>'
+        f'<div class="msg {cls}">'
+        f'<div class="msg-avatar">{html.escape(_initials(label))}</div>'
+        f'<div class="msg-col"><div class="msg-label">{label}</div>'
+        f'<div class="msg-body {bubble}">{html.escape(getattr(m, "content", ""))}</div>'
+        f"</div></div>"
     )
 
 
