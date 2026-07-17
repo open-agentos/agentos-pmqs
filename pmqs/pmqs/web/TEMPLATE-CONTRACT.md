@@ -133,7 +133,8 @@ card  card-main  card-title  card-meta  card-actions  card-age  selected
 icon-btn  primary  pill  quick-add
 inbox-list  inbox-detail  detail-empty  detail-title  detail-section  detail-label
 detail-body  detail-actions  d-btn  source-card  source-ref  source-meta
-convo-scroll  convo-input  msg  msg-label  msg-body  sys-bubble
+convo-scroll  convo-input  msg  msg-label  msg-body  sys-bubble  pm-bubble
+msg-avatar  msg-col
 ws-title  session-stats
 doc  doc-sub  doc-section  doc-label  doc-text  doc-grid  doc-box
 evidence-item  evidence-title  evidence-sub

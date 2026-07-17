@@ -307,14 +307,35 @@ textarea.set-input{min-height:64px;}
 
 .convo-pane{width:52%;display:flex;flex-direction:column;border-right:1px solid var(--border-default);}
 .convo-scroll{flex:1;overflow-y:auto;padding:24px 26px;}
-.msg{max-width:88%;margin-bottom:16px;font-size:14px;line-height:1.55;}
+/* #109: a single left-aligned thread -- avatar rail plus a connector between
+   consecutive messages. The PM bubble no longer floats right: a thread line and an
+   alternating gutter cannot both be true. Speaker stays legible via the avatar,
+   the label colour and the bubble fill. */
+.msg{display:flex;gap:12px;position:relative;padding-bottom:20px;font-size:14px;line-height:1.55;}
+.msg:last-child{padding-bottom:0;}
+/* The connector. Runs from under the avatar to the next message's avatar; suppressed
+   on the last message so the thread ends rather than trailing off. */
+.msg::before{content:"";position:absolute;left:14px;top:32px;bottom:0;width:1px;
+  background:var(--border-default);}
+.msg:last-child::before{display:none;}
+.msg-avatar{width:29px;height:29px;border-radius:50%;flex-shrink:0;position:relative;z-index:1;
+  display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);
+  font-size:10px;font-weight:500;letter-spacing:0.02em;}
+/* --accent-teal is the documented FILL-ONLY token, so it fills; the initials need a
+   token that can actually be read on it (--text-primary, 8.29:1). Pairing it with
+   --accent-teal-fg as the spec suggested measures 2.45:1. */
+.msg.system .msg-avatar{background:var(--accent-teal);color:var(--text-primary);
+  border:1px solid var(--accent-teal-dim);}
+.msg.pm .msg-avatar{background:var(--bg-raised);color:var(--accent-gold);
+  border:1px solid var(--accent-gold-dim);}
+.msg-col{flex:1;min-width:0;padding-top:5px;}
 .msg.system{color:var(--text-secondary);}
 .msg.system .msg-label{color:var(--accent-teal-fg);}
-.msg.pm{margin-left:auto;color:var(--text-primary);}
-.msg.pm .msg-label{color:var(--accent-gold);text-align:right;}
+.msg.pm{color:var(--text-primary);}
+.msg.pm .msg-label{color:var(--accent-gold);}
 .msg-label{font-size:10.5px;text-transform:uppercase;letter-spacing:0.07em;margin-bottom:4px;font-family:var(--font-mono);}
-.msg-body.pm-bubble{background:var(--bg-active);border:1px solid var(--border-default);border-radius:8px 8px 2px 8px;padding:10px 13px;}
-.msg-body.sys-bubble{background:var(--bg-surface);border:1px solid var(--border-default);border-radius:8px 8px 8px 2px;padding:10px 13px;}
+.msg-body.pm-bubble{background:var(--bg-active);border:1px solid var(--accent-gold-dim);border-radius:2px 8px 8px 8px;padding:10px 13px;}
+.msg-body.sys-bubble{background:var(--bg-surface);border:1px solid var(--border-default);border-radius:2px 8px 8px 8px;padding:10px 13px;}
 
 .convo-input{border-top:1px solid var(--border-default);padding:14px 18px;display:flex;gap:8px;flex-shrink:0;}
 .convo-input input{
@@ -592,16 +613,25 @@ textarea.set-input{min-height:64px;}
           <div class="convo-pane">
             <div class="convo-scroll" id="convo-scroll">
               <div class="msg system">
+                <div class="msg-avatar">S</div>
+                <div class="msg-col">
                 <div class="msg-label">System</div>
                 <div class="msg-body sys-bubble">This has sat for 9 days. Two paths: ship a mitigation now, or keep the block until the root fix lands. Here's what's actually true before you decide.</div>
+                </div>
               </div>
               <div class="msg pm">
+                <div class="msg-avatar">Y</div>
+                <div class="msg-col">
                 <div class="msg-label">You</div>
                 <div class="msg-body pm-bubble">What's actually at risk if we mitigate instead of waiting for the real fix?</div>
+                </div>
               </div>
               <div class="msg system">
+                <div class="msg-avatar">S</div>
+                <div class="msg-col">
                 <div class="msg-label">System</div>
                 <div class="msg-body sys-bubble">The mitigation only covers the adopt path. Upgrade still corrupts state if a repo has stale bootstrap templates — that's roughly a fifth of active installs, based on the template-drift check. Worth reading the full breakdown before you commit either way.</div>
+                </div>
               </div>
             </div>
             <div class="convo-input">
