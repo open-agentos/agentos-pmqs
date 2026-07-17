@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import framing, repository, scoring
+from pmqs import framing, products, repository, scoring
 from pmqs.dedup import dedup
 from pmqs.triggers import ALL_TRIGGERS
 
@@ -56,7 +56,7 @@ def generate(db: OrmSession, state: dict[str, Any], triggers=None, *, product_id
             status="proposed",
             product_id=product_id,
         )
-        score, dims = scoring.score_question(q)
+        score, dims = scoring.score_question(q, products.weights_for(db, product_id))
         repository.set_question_score(db, q.id, score, dims)
         questions.append(q)
     return questions
