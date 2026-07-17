@@ -46,6 +46,19 @@ LENS_WEIGHTS: dict[str, float] = {
     "narrative_positioning": 0.5,
 }
 
+# Display names for the 8 lenses (#98). Keys must match LENS_WEIGHTS exactly -- a test
+# pins that, so adding a lens without a label fails loudly rather than rendering a slug.
+LENS_LABELS: dict[str, str] = {
+    "competitive_positioning": "Competitive positioning",
+    "growth_adoption": "Growth / adoption signal",
+    "unit_economics": "Unit economics / margin",
+    "risk_exposure": "Risk & exposure",
+    "roadmap_tradeoff": "Roadmap tradeoff / sequencing",
+    "quality_reliability": "Quality / reliability",
+    "org_execution_drag": "Org / execution drag",
+    "narrative_positioning": "Narrative / external positioning",
+}
+
 # Structural trigger thresholds.
 STALE_ISSUE_AGE_DAYS = int(os.environ.get("PMQS_STALE_ISSUE_AGE_DAYS", "14"))
 

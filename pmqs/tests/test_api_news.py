@@ -44,17 +44,21 @@ def test_save_news_settings(client):
     # skip the backfills, so create one -- there's nothing to hang a watchlist on
     # otherwise (#96).
     s0 = client._session_factory()
-    products.get_or_create_default_product(s0)
+    slug = products.get_or_create_default_product(s0).slug
     s0.close()
+    # Two surfaces as of #98: the throttles are the account's...
     r = client.post("/settings/news", data={
-        "news_api_key_ref": "BRAVE_API_KEY",
-        "news_queries": "agent orchestration\nAI PM tools",
-        "product_profile": "PMQs on AgentOS",
-        "top_n": "3", "min_relevance": "0.6",
+        "news_api_key_ref": "BRAVE_API_KEY", "top_n": "3", "min_relevance": "0.6",
     }, follow_redirects=False)
     assert r.status_code == 303
+    # ...the watchlist is the product's.
+    r = client.post(f"/w/{slug}/settings", data={
+        "news_queries": "agent orchestration\nAI PM tools",
+        "product_profile": "PMQs on AgentOS",
+    }, follow_redirects=False)
+    assert r.status_code == 303
+
     db = client._session_factory()
-    # Split as of #96: the queries are the Product's, the threshold is the account's.
     assert products.get_news_config(db, products.list_products(db)[0])["queries"] == [
         "agent orchestration", "AI PM tools"]
     assert settings.get_news_config(db)["min_relevance"] == 0.6

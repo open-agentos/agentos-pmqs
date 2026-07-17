@@ -75,10 +75,6 @@ document.addEventListener('DOMContentLoaded', function(){{
     e.stopImmediatePropagation();
     window.location.href = '{prefix}/workspaces';
   }}, true);
-  // Settings hangs off the identity block, not the nav (#91). The link is real markup
-  // in the template; all this does is keep it inside the current product's prefix.
-  var idb = document.getElementById('identity-block');
-  if (idb) idb.setAttribute('href', '{prefix}/settings');
 }});
 </script>
 """
@@ -118,6 +114,10 @@ _PS_CURRENT_RE = re.compile(
 _PS_ITEMS_RE = re.compile(
     r"(<!-- PRODUCT SWITCHER ITEMS -->)(.*?)(<!-- /PRODUCT SWITCHER ITEMS -->)", re.DOTALL
 )
+# Product settings hangs off the switcher, where products live -- account settings hangs
+# off the identity block (#91). Two surfaces, two entry points, drawn on the same line:
+# yours vs the product's.
+_PS_SETTINGS_RE = re.compile(r'(<a class="ps-item" id="ps-settings" href=")[^"]*(")')
 
 
 def _apply_product_switcher(src: str, db: Any, workspace_slug: str | None) -> str:
@@ -149,6 +149,7 @@ def _apply_product_switcher(src: str, db: Any, workspace_slug: str | None) -> st
         items.append(f'<a class="{cls}" href="/w/{p.slug}/">{name}</a>')
     items_html = "\n            ".join(items)
     src = _PS_ITEMS_RE.sub(lambda m: f"{m.group(1)}\n            {items_html}\n            {m.group(3)}", src, count=1)
+    src = _PS_SETTINGS_RE.sub(lambda m: f"{m.group(1)}/w/{current.slug}/settings{m.group(2)}", src, count=1)
     return src
 
 
@@ -838,24 +839,31 @@ def _set_checkbox(label: str, name: str, checked: bool) -> str:
             f'{html.escape(label)}</label>')
 
 
-def _news_status_html(db: Any, cfg: dict, product: Any) -> str:
-    """What the PM needs to know before wondering why the inbox is empty.
-
-    The key is reported as a boolean and nothing more. Never render it, never render a
-    prefix of it, never render its length.
-    """
+def _account_news_status_html(db: Any, cfg: dict) -> str:
+    """Account-level news status. The key is reported as a boolean and nothing more:
+    never the value, never a prefix, never its length."""
     from pmqs import repository, settings as settings_mod
 
     key_ok = bool(settings_mod.resolve_brave_key(db))
-    queries = settings_mod.effective_news_queries(db, product)
-    stored = len(repository.list_news_items(db, product_id=product.id) if product else [])
     last_run = cfg.get("last_run") or ""
     rows = [
         f'Brave key: <b>{"resolves" if key_ok else "not found"}</b>',
-        f'Queries this run: <b>{len(queries)}</b>',
         f'Last run: <b>{html.escape(last_run.replace("T", " ")) if last_run else "never"}</b>'
-        + (f' · promoted <b>{cfg.get("last_promoted", 0)}</b>' if last_run else ""),
-        f'Items in store: <b>{stored}</b>',
+        + (f' \u00b7 promoted <b>{cfg.get("last_promoted", 0)}</b> across all products' if last_run else ""),
+        f'Items in store: <b>{len(repository.list_news_items(db))}</b>',
+    ]
+    return f'<div class="set-status">{"<br>".join(rows)}</div>'
+
+
+def _product_news_status_html(db: Any, product: Any) -> str:
+    """What this product will actually search, and what it has collected."""
+    from pmqs import repository, settings as settings_mod
+
+    queries = settings_mod.effective_news_queries(db, product)
+    stored = len(repository.list_news_items(db, product_id=product.id))
+    rows = [
+        f'Queries this run: <b>{len(queries)}</b>',
+        f'Items collected for this product: <b>{stored}</b>',
     ]
     preview = ""
     if queries:
@@ -864,26 +872,25 @@ def _news_status_html(db: Any, cfg: dict, product: Any) -> str:
     return f'<div class="set-status">{"<br>".join(rows)}</div>{preview}'
 
 
-def _settings_sections(db: Any, prefix: str = "", product: Any = None) -> str:
-    """Build the Settings sections. The API key is NEVER echoed back: shown masked."""
-    from pmqs import products as products_repo
+def _settings_sections(db: Any, prefix: str = "") -> str:
+    """ACCOUNT sections. The API key is NEVER echoed back: shown masked.
+
+    The watchlist, product profile and lens weights are NOT here -- they belong to a
+    Product and live in _product_settings_sections (#98).
+    """
+    from pmqs import members as members_repo
     from pmqs import settings as settings_mod
+    from pmqs.models import Member
 
     cfg = settings_mod.get_llm(db)
-    key_display = "•••••••• (stored)" if cfg.get("api_key_raw") else html.escape(cfg.get("api_key_ref") or "")
+    key_display = "\u2022" * 8 + " (stored)" if cfg.get("api_key_raw") else html.escape(cfg.get("api_key_ref") or "")
     news = settings_mod.get_news_config(db)
-    product_news = products_repo.get_news_config(db, product)
-    n_key_display = "•••••••• (stored)" if news.get("api_key_raw") else html.escape(news.get("api_key_ref") or "")
-
-    from pmqs import members as members_repo
-    from pmqs.models import Member
+    n_key_display = "\u2022" * 8 + " (stored)" if news.get("api_key_raw") else html.escape(news.get("api_key_ref") or "")
 
     member = db.get(Member, members_repo.current_member_id(db))
     display_name = html.escape(member.display_name if member else "")
 
-    product_label = products_repo.product_display_name(db, product) if product else "no product yet"
-
-    you = f"""<form method="post" action="{prefix}/settings">
+    you = f"""<form method="post" action="/settings">
 <div class="set-section"><h2>You</h2>
 <div class="set-scope">Your name, your model, your key. Applies to every product.</div>
 {_set_field("Display name", "display_name", display_name, placeholder="You",
@@ -892,62 +899,39 @@ def _settings_sections(db: Any, prefix: str = "", product: Any = None) -> str:
 {_set_field("Model", "model", html.escape(cfg.get("model", "")), placeholder="anthropic/claude-haiku-4-5-20251001")}
 {_set_field("API key env var (recommended)", "api_key_ref", key_display, placeholder="ANTHROPIC_API_KEY",
             hint="Reference an environment variable rather than pasting a key. The key is never displayed once stored.")}
-{_set_field("API key (optional, inline — stored, never shown)", "api_key_raw", "", type_="password",
+{_set_field("API key (optional, inline \u2014 stored, never shown)", "api_key_raw", "", type_="password",
             placeholder="leave blank to keep current")}
 {_set_field("Base URL (optional, for OpenAI-compatible endpoints)", "base_url", html.escape(cfg.get("base_url", "")))}
 <button class="set-btn" type="submit">Save</button>
 </div></form>"""
 
-    wl = product_news.get("watchlist") or {}
-
-    def _wl(field: str) -> str:
-        return html.escape("\n".join(wl.get(field) or []))
-
-    news_section = f"""<form method="post" action="{prefix}/settings/news">
+    news_section = f"""<form method="post" action="/settings/news">
 <div class="set-section"><h2>News</h2>
-<div class="set-scope">Your Brave key and throttles. Applies to every product.</div>
+<div class="set-scope">Your Brave key and throttles. Each product's watchlist lives in that product's settings.</div>
 {_set_checkbox("Ingest news", "news_enabled", news.get("enabled", True))}
 {_set_field("Brave API key env var", "news_api_key_ref", n_key_display, placeholder="BRAVE_API_KEY",
             hint="Stored as an env-var reference or inline (masked, never shown). Never committed to the repo.")}
-{_set_field("Brave API key (optional, inline — stored, never shown)", "news_api_key_raw", "", type_="password",
+{_set_field("Brave API key (optional, inline \u2014 stored, never shown)", "news_api_key_raw", "", type_="password",
             placeholder="leave blank to keep current")}
-</div>
-<div class="set-section"><h2>Watchlist — {html.escape(product_label)}</h2>
-<div class="set-scope">This product only. One per line; everything except sources becomes a search, sources restrict all of them.</div>
-{_set_field("Industry", "wl_industry", _wl("industry"), textarea=True, placeholder="agent orchestration")}
-{_set_field("Keywords", "wl_keywords", _wl("keywords"), textarea=True, placeholder="AI product management")}
-{_set_field("Companies", "wl_companies", _wl("companies"), textarea=True, placeholder="Anthropic")}
-{_set_field("Product names", "wl_products", _wl("products"), textarea=True, placeholder="Claude Code")}
-{_set_field("Media sources", "wl_sources", _wl("sources"), textarea=True, placeholder="techcrunch.com",
-            hint="Domains. Folded into every search as one site: group, not searched on their own.")}
-{_set_field("Raw queries (advanced, one per line)", "news_queries",
-            html.escape("\n".join(product_news.get("queries", []))), textarea=True,
-            hint="Brave query syntax, passed through untouched and appended to the composed ones.")}
-{_news_status_html(db, news, product)}
-</div>
-<div class="set-section"><h2>Relevance</h2>
-<div class="set-scope">The profile is this product's; the thresholds are account-wide.</div>
-{_set_field("Product profile (what the relevance pass judges against)", "product_profile",
-            html.escape(product_news.get("product_profile", "")), textarea=True,
-            placeholder="What the product is, who competes, what the PM cares about…")}
 <div class="set-row">
 <div>{_set_select("Freshness", "freshness", str(news.get("freshness", "pw")), settings_mod.FRESHNESS_CHOICES)}</div>
 <div>{_set_field("Results per query", "count", html.escape(str(news.get("count", 10))))}</div>
 </div>
 <div class="set-row">
-<div>{_set_field("Max questions per run", "top_n", html.escape(str(news.get("top_n", 3))))}</div>
-<div>{_set_field("Relevance threshold (0–1)", "min_relevance", html.escape(str(news.get("min_relevance", 0.5))))}</div>
+<div>{_set_field("Max questions per product per run", "top_n", html.escape(str(news.get("top_n", 3))))}</div>
+<div>{_set_field("Relevance threshold (0\u20131)", "min_relevance", html.escape(str(news.get("min_relevance", 0.5))))}</div>
 </div>
+{_account_news_status_html(db, news)}
 <button class="set-btn" type="submit">Save</button>
 </div></form>
-<form method="post" action="{prefix}/news/ingest">
+<form method="post" action="/news/ingest">
 <div class="set-section"><h2>Fetch news now</h2>
-<div class="set-scope">Runs a manual ingestion + relevance pass against the watchlist above.</div>
-<input type="hidden" name="return_to" value="{prefix}/settings">
+<div class="set-scope">Runs one ingestion + relevance pass across every product, each against its own watchlist.</div>
+<input type="hidden" name="return_to" value="/settings">
 <button class="set-btn" type="submit">Fetch news now</button>
 </div></form>"""
 
-    advanced = f"""<form method="post" action="{prefix}/settings/advanced">
+    advanced = f"""<form method="post" action="/settings/advanced">
 <div class="set-section"><h2>Advanced</h2>
 <div class="set-scope">Rarely needs changing.</div>
 {_set_field("Context feed budget (characters)", "char_budget",
@@ -961,31 +945,138 @@ def _settings_sections(db: Any, prefix: str = "", product: Any = None) -> str:
 
 def render_settings(db: Any, template_path: Path | None = None, *,
                     workspace_slug: str | None = None) -> str:
-    """Splice the Settings sections into the template's Settings view.
+    """ACCOUNT settings, spliced into the template's Settings view.
 
-    Settings is account-wide, so `workspace_slug` does NOT scope any config -- it only
-    drives the Product switcher and keeps the rail's nav links inside whichever product
-    the PM walked in from (#56 prefix), same as render_outcomes.
+    Account-wide, so it takes no product and is reached at an UNPREFIXED /settings from
+    the identity block. `workspace_slug` survives only so the rail can keep its Product
+    switcher pointed somewhere sensible; it scopes nothing. Product settings is a
+    different page -- see render_product_settings (#98).
 
     The API key is NEVER echoed back: shown masked. See _settings_sections.
     """
-    src = _load_template(template_path)
-    src = _apply_rail(src, db, workspace_slug)
-    _prefix = f"/w/{workspace_slug}" if workspace_slug else ""
-    # Same rule as the switcher: an explicit slug wins, else the account's default
-    # product. The news watchlist shown is THIS product's (#96).
+    return _render_settings_view(
+        db, _settings_sections(db), template_path=template_path, workspace_slug=workspace_slug
+    )
+
+
+def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "edit") -> str:
+    """PRODUCT sections: what makes this product this product.
+
+    `mode="create"` renders the same fields with an empty Product and a Create button --
+    Add Product is this view before the Product exists (#99).
+    """
+    from pmqs import config
+    from pmqs import members as members_repo
     from pmqs import products as products_repo
 
-    all_products = products_repo.list_products(db)
-    product = None
-    if workspace_slug is not None:
-        product = next((p for p in all_products if p.slug == workspace_slug), None)
-    if product is None and all_products:
-        product = all_products[0]
-    sections = _settings_sections(db, _prefix, product)
+    creating = mode == "create"
+    news = products_repo.get_news_config(db, product)
+    wl = news.get("watchlist") or {}
+
+    def _wl(field: str) -> str:
+        return html.escape("\n".join(wl.get(field) or []))
+
+    action = "/products" if creating else f"{prefix}/settings"
+    verb = "Add product" if creating else "Save"
+    label = "" if creating else html.escape(products_repo.product_display_name(db, product))
+
+    if creating:
+        identity = f"""<div class="set-section"><h2>Add a product</h2>
+<div class="set-scope">A GitHub repo to trace. Everything below can be changed later.</div>
+{_set_field("Repository", "repo", "", placeholder="org/repo",
+            hint="Resolves to the existing product if a colleague already added this repo.")}
+{_set_field("Nickname (optional)", "nickname", "", placeholder="what you call it",
+            hint="Shown in the switcher. Sets the URL when the product is created.")}
+</div>"""
+    else:
+        identity = f"""<div class="set-section"><h2>{label}</h2>
+<div class="set-scope">This product only.</div>
+{_set_field("Display name", "display_name", html.escape(product.display_name or ""))}
+{_set_field("Nickname (optional)", "nickname", html.escape(product.nickname or ""),
+            placeholder="what you call it",
+            hint=f"Shown in the switcher. The URL stays /w/{product.slug}/ \u2014 it's set when the "
+                 "product is created and doesn't move when you rename.")}
+{_set_field("Repository", "repo", html.escape(product.full_name), placeholder="org/repo")}
+</div>"""
+
+    watchlist = f"""<div class="set-section"><h2>Watchlist</h2>
+<div class="set-scope">What this product watches for. One per line; everything except sources becomes a search, sources restrict all of them.</div>
+{_set_field("Industry", "wl_industry", _wl("industry"), textarea=True, placeholder="agent orchestration")}
+{_set_field("Keywords", "wl_keywords", _wl("keywords"), textarea=True, placeholder="AI product management")}
+{_set_field("Companies", "wl_companies", _wl("companies"), textarea=True, placeholder="Anthropic")}
+{_set_field("Product names", "wl_products", _wl("products"), textarea=True, placeholder="Claude Code")}
+{_set_field("Media sources", "wl_sources", _wl("sources"), textarea=True, placeholder="techcrunch.com",
+            hint="Domains. Folded into every search as one site: group, not searched on their own.")}
+{_set_field("Raw queries (advanced, one per line)", "news_queries",
+            html.escape("\n".join(news.get("queries", []))), textarea=True,
+            hint="Brave query syntax, passed through untouched and appended to the composed ones.")}
+{_set_field("Product profile (what the relevance pass judges against)", "product_profile",
+            html.escape(news.get("product_profile", "")), textarea=True,
+            placeholder="What the product is, who competes, what the PM cares about\u2026")}
+{"" if creating else _product_news_status_html(db, product)}
+</div>"""
+
+    weights = products_repo.weights_for(db, None if creating else product.id)
+    rows = "".join(
+        f'<div>{_set_field(config.LENS_LABELS[k], f"lens_{k}", html.escape(str(weights[k])))}</div>'
+        for k in config.LENS_WEIGHTS
+    )
+    lenses = f"""<div class="set-section"><h2>Lens weights</h2>
+<div class="set-scope">How much each of the 8 lenses matters for this product. Defaults are sane; tune only what's wrong.</div>
+<div class="set-row">{rows}</div>
+</div>"""
+
+    body = f"""<form method="post" action="{action}">
+{identity}
+{watchlist}
+{lenses}
+<div class="set-section"><button class="set-btn" type="submit">{verb}</button></div>
+</form>"""
+
+    if creating:
+        return body
+
+    people = members_repo.list_product_members(db, product_id=product.id)
+    member_rows = "".join(
+        f'<div>{html.escape(m.display_name or "You")} <span style="color:var(--text-muted)">\u00b7 {html.escape(role)}</span></div>'
+        for m, role in people
+    ) or '<div style="color:var(--text-muted)">No members recorded.</div>'
+    members_section = f"""<div class="set-section"><h2>Members</h2>
+<div class="set-scope">Everyone attached to this product. Invites aren't built yet.</div>
+<div class="set-status">{member_rows}</div>
+</div>"""
+
+    archive = f"""<form method="post" action="{prefix}/settings/archive">
+<div class="set-section"><h2>Archive</h2>
+<div class="set-scope">Hides this product from the switcher. Nothing is deleted.</div>
+<button class="set-btn" type="submit">Archive this product</button>
+</div></form>"""
+
+    return "\n".join([body, members_section, archive])
+
+
+def render_product_settings(db: Any, product: Any, template_path: Path | None = None, *,
+                            workspace_slug: str | None = None, mode: str = "edit") -> str:
+    """PRODUCT settings. Reached at /w/{slug}/settings from the Product switcher.
+
+    Shares the template's Settings view slot with render_settings -- one view, two
+    renderers, because the shell is identical and only the sections differ.
+    """
+    prefix = f"/w/{workspace_slug}" if workspace_slug else ""
+    return _render_settings_view(
+        db, _product_settings_sections(db, product, prefix, mode),
+        template_path=template_path, workspace_slug=workspace_slug,
+    )
+
+
+def _render_settings_view(db: Any, sections: str, *, template_path: Path | None = None,
+                          workspace_slug: str | None = None) -> str:
+    src = _load_template(template_path)
+    src = _apply_rail(src, db, workspace_slug)
     new_src, n = _SETTINGS_SECTIONS_RE.subn(lambda m: f"{m.group(1)}\n{sections}\n{m.group(3)}", src)
     if n == 0:
         raise RuntimeError("Could not locate Settings sections region in app template")
+    _prefix = f"/w/{workspace_slug}" if workspace_slug else ""
     settings_js = _live_js_common(_prefix) + """
 <script>
 document.addEventListener('DOMContentLoaded', function(){
