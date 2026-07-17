@@ -51,7 +51,7 @@ def test_ingest_persists_and_dedups(db, monkeypatch):
     data = json.loads(FIXTURE.read_text())
     parsed = parse_brave_results(data, query="AI agents")
     import pmqs.news.fetch as fetch
-    monkeypatch.setattr(fetch, "_fetch_query", lambda q, k, count=10: parsed)
+    monkeypatch.setattr(fetch, "_fetch_query", lambda q, k, **kw: parsed)
     settings.set_news_config(db, queries=["AI agents"], api_key_raw="RAWKEY")
 
     created1 = ingest(db)
