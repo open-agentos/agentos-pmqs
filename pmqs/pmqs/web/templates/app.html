@@ -277,6 +277,14 @@ textarea.set-input{min-height:64px;}
 
 .card-main{flex:1;}
 .card-title{font-size:15.5px;font-weight:500;color:var(--text-primary);margin-bottom:6px;line-height:1.4;}
+/* #110: rank is position in the sorted list; the `score N.NN` pill stays the magnitude.
+   --text-muted matches .card-age, the existing treatment for faint card metadata.
+   The top-two accent is --accent-gold, NOT --accent-gold-dim as specced: gold-dim is a
+   border derivative and measures 2.43:1 on --bg-active, i.e. FAINTER than the 2.59:1
+   default it is meant to emphasise. See PR #115. */
+.rank-badge{font-family:var(--font-mono);font-size:10.5px;color:var(--text-muted);
+  margin-right:8px;font-weight:400;letter-spacing:0.02em;}
+.rank-badge.top{color:var(--accent-gold);}
 .card-meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
 .pill{font-size:10.5px;font-family:var(--font-mono);padding:2px 7px;border-radius:3px;
   color:var(--text-secondary);background:var(--bg-raised);border:1px solid var(--border-default);}
