@@ -786,74 +786,106 @@ document.addEventListener('DOMContentLoaded', function(){
     return _inject_before_body_close(new_src, outcomes_js)
 
 
-def render_settings(db: Any) -> str:
-    """Render a minimal Settings page (LLM section). Self-contained dark-theme page.
-    The API key is NEVER echoed back: shown masked.
-    """
+# Settings (#90): the sections region between the comment sentinels. Sentinel-anchored
+# rather than </div>-counted, so wrapping the section list in a container can't silently
+# break the splice the way _OUTCOMES_LIST_RE can.
+_SETTINGS_SECTIONS_RE = re.compile(
+    r"(<!-- SETTINGS SECTIONS -->)(.*?)(<!-- /SETTINGS SECTIONS -->)", re.DOTALL
+)
+
+
+def _set_field(label: str, name: str, value: str, *, placeholder: str = "",
+               hint: str = "", type_: str = "text", textarea: bool = False) -> str:
+    ph = f' placeholder="{html.escape(placeholder)}"' if placeholder else ""
+    if textarea:
+        field = f'<textarea class="set-input" name="{name}"{ph}>{value}</textarea>'
+    else:
+        field = f'<input class="set-input" type="{type_}" name="{name}" value="{value}"{ph}>'
+    hint_html = f'<div class="set-hint">{html.escape(hint)}</div>' if hint else ""
+    return f'<label class="set-label">{html.escape(label)}</label>{field}{hint_html}'
+
+
+def _settings_sections(db: Any) -> str:
+    """Build the Settings sections. The API key is NEVER echoed back: shown masked."""
     from pmqs import settings as settings_mod
 
     cfg = settings_mod.get_llm(db)
-    has_raw = bool(cfg.get("api_key_raw"))
-    key_display = "•••••••• (stored)" if has_raw else html.escape(cfg.get("api_key_ref") or "")
-    provider = html.escape(cfg.get("provider", ""))
-    model = html.escape(cfg.get("model", ""))
-    base_url = html.escape(cfg.get("base_url", ""))
-
+    key_display = "•••••••• (stored)" if cfg.get("api_key_raw") else html.escape(cfg.get("api_key_ref") or "")
     news = settings_mod.get_news_config(db)
-    n_has_raw = bool(news.get("api_key_raw"))
-    n_key_display = "•••••••• (stored)" if n_has_raw else html.escape(news.get("api_key_ref") or "")
-    n_queries = html.escape("\n".join(news.get("queries", [])))
-    n_profile = html.escape(news.get("product_profile", ""))
-    n_top = html.escape(str(news.get("top_n", 3)))
-    n_thresh = html.escape(str(news.get("min_relevance", 0.5)))
+    n_key_display = "•••••••• (stored)" if news.get("api_key_raw") else html.escape(news.get("api_key_ref") or "")
 
-    return f"""<!doctype html><html><head><meta charset="utf-8"><title>PMQs — Settings</title><link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<style>
-body{{background:#1a1a1f;color:#e8e6e0;font:14px/1.5 -apple-system,system-ui,sans-serif;margin:0;padding:40px}}
-.wrap{{max-width:560px;margin:0 auto}}
-h1{{font-size:20px;margin:0 0 4px}} .sub{{color:#8a8780;font-size:12.5px;margin-bottom:28px}}
-.section{{background:#232329;border:1px solid #34343c;border-radius:10px;padding:22px;margin-bottom:18px}}
-.section h2{{font-size:14px;margin:0 0 16px;color:#c9c6be}}
-label{{display:block;font-size:12px;color:#8a8780;margin:12px 0 4px}}
-input{{width:100%;box-sizing:border-box;background:#1a1a1f;border:1px solid #3a3a44;color:#e8e6e0;
-border-radius:6px;padding:8px 10px;font-size:13px}}
-.hint{{font-size:11px;color:#6a675f;margin-top:4px}}
-button{{margin-top:18px;background:#4a7d6e;color:#fff;border:0;border-radius:6px;padding:9px 18px;
-font-size:13px;cursor:pointer}} a{{color:#7fb8a6}}
-textarea{{width:100%;box-sizing:border-box;background:#1a1a1f;border:1px solid #3a3a44;color:#e8e6e0;
-border-radius:6px;padding:8px 10px;font-size:13px;min-height:64px;font-family:inherit}}
-.row{{display:flex;gap:12px}} .row > div{{flex:1}}
-form.inline{{display:inline}} button.ghost{{background:#3a3a44}}
-</style></head><body><div class="wrap">
-<h1>Settings</h1><div class="sub">PMQs prototype configuration · <a href="/">← Inbox</a></div>
-<form method="post" action="/settings">
-<div class="section"><h2>LLM provider</h2>
-<label>Provider</label><input name="provider" value="{provider}" placeholder="anthropic">
-<label>Model</label><input name="model" value="{model}" placeholder="anthropic/claude-haiku-4-5-20251001">
-<label>API key env var (recommended)</label><input name="api_key_ref" value="{key_display}" placeholder="ANTHROPIC_API_KEY">
-<div class="hint">Reference an environment variable rather than pasting a key. The key is never displayed once stored.</div>
-<label>API key (optional, inline — stored, never shown)</label><input name="api_key_raw" type="password" value="" placeholder="leave blank to keep current">
-<label>Base URL (optional, for OpenAI-compatible endpoints)</label><input name="base_url" value="{base_url}" placeholder="">
-<button type="submit">Save LLM settings</button>
-</div></form>
+    you = f"""<form method="post" action="/settings">
+<div class="set-section"><h2>You</h2>
+<div class="set-scope">Your model and your key. Applies to every product.</div>
+{_set_field("Provider", "provider", html.escape(cfg.get("provider", "")), placeholder="anthropic")}
+{_set_field("Model", "model", html.escape(cfg.get("model", "")), placeholder="anthropic/claude-haiku-4-5-20251001")}
+{_set_field("API key env var (recommended)", "api_key_ref", key_display, placeholder="ANTHROPIC_API_KEY",
+            hint="Reference an environment variable rather than pasting a key. The key is never displayed once stored.")}
+{_set_field("API key (optional, inline — stored, never shown)", "api_key_raw", "", type_="password",
+            placeholder="leave blank to keep current")}
+{_set_field("Base URL (optional, for OpenAI-compatible endpoints)", "base_url", html.escape(cfg.get("base_url", "")))}
+<button class="set-btn" type="submit">Save</button>
+</div></form>"""
 
-<form method="post" action="/settings/news">
-<div class="section"><h2>News (Brave Search)</h2>
-<label>Brave API key env var</label><input name="news_api_key_ref" value="{n_key_display}" placeholder="BRAVE_API_KEY">
-<div class="hint">The Brave key is stored as an env-var reference or inline (masked, never shown). Never committed to the repo.</div>
-<label>Brave API key (optional, inline — stored, never shown)</label><input name="news_api_key_raw" type="password" value="" placeholder="leave blank to keep current">
-<label>Search queries (one per line)</label><textarea name="news_queries" placeholder="agent orchestration&#10;AI product management">{n_queries}</textarea>
-<label>Product profile (what the relevance pass judges against)</label><textarea name="product_profile" placeholder="What the product is, who competes, what the PM cares about…">{n_profile}</textarea>
-<div class="row">
-<div><label>Max questions per run</label><input name="top_n" value="{n_top}"></div>
-<div><label>Relevance threshold (0–1)</label><input name="min_relevance" value="{n_thresh}"></div>
+    news_section = f"""<form method="post" action="/settings/news">
+<div class="set-section"><h2>News</h2>
+<div class="set-scope">Applies to all products — per-product watchlists are a later change (#78).</div>
+{_set_field("Brave API key env var", "news_api_key_ref", n_key_display, placeholder="BRAVE_API_KEY",
+            hint="Stored as an env-var reference or inline (masked, never shown). Never committed to the repo.")}
+{_set_field("Brave API key (optional, inline — stored, never shown)", "news_api_key_raw", "", type_="password",
+            placeholder="leave blank to keep current")}
+{_set_field("Search queries (one per line)", "news_queries",
+            html.escape("\n".join(news.get("queries", []))), textarea=True,
+            placeholder="agent orchestration&#10;AI product management")}
+{_set_field("Product profile (what the relevance pass judges against)", "product_profile",
+            html.escape(news.get("product_profile", "")), textarea=True,
+            placeholder="What the product is, who competes, what the PM cares about…")}
+<div class="set-row">
+<div>{_set_field("Max questions per run", "top_n", html.escape(str(news.get("top_n", 3))))}</div>
+<div>{_set_field("Relevance threshold (0–1)", "min_relevance", html.escape(str(news.get("min_relevance", 0.5))))}</div>
 </div>
-<button type="submit">Save news settings</button>
+<button class="set-btn" type="submit">Save</button>
 </div></form>
+<form method="post" action="/news/ingest">
+<div class="set-section"><h2>Fetch news now</h2>
+<div class="set-scope">Runs a manual ingestion + relevance pass against your configured queries.</div>
+<button class="set-btn" type="submit">Fetch news now</button>
+</div></form>"""
 
-<form method="post" action="/news/ingest" class="inline">
-<div class="section"><h2>Fetch news now</h2>
-<div class="hint">Runs a manual ingestion + relevance pass against your configured queries. (Cron scheduling comes later.)</div>
-<button type="submit">Fetch news now</button>
-</div></form>
-</div></body></html>"""
+    advanced = f"""<form method="post" action="/settings/advanced">
+<div class="set-section"><h2>Advanced</h2>
+<div class="set-scope">Rarely needs changing.</div>
+{_set_field("Context feed budget (characters)", "char_budget",
+            html.escape(str(settings_mod.get_context_budget(db))),
+            hint="Cap on the durable-outcome context block assembled for agents.")}
+<button class="set-btn" type="submit">Save</button>
+</div></form>"""
+
+    return "\n".join([you, news_section, advanced])
+
+
+def render_settings(db: Any, template_path: Path | None = None, *,
+                    workspace_slug: str | None = None) -> str:
+    """Splice the Settings sections into the template's Settings view.
+
+    Settings is account-wide, so `workspace_slug` does NOT scope any config -- it only
+    drives the Product switcher and keeps the rail's nav links inside whichever product
+    the PM walked in from (#56 prefix), same as render_outcomes.
+
+    The API key is NEVER echoed back: shown masked. See _settings_sections.
+    """
+    src = _load_template(template_path)
+    src = _apply_product_switcher(src, db, workspace_slug)
+    sections = _settings_sections(db)
+    new_src, n = _SETTINGS_SECTIONS_RE.subn(lambda m: f"{m.group(1)}\n{sections}\n{m.group(3)}", src)
+    if n == 0:
+        raise RuntimeError("Could not locate Settings sections region in app template")
+    _prefix = f"/w/{workspace_slug}" if workspace_slug else ""
+    settings_js = _live_js_common(_prefix) + """
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  if (typeof showView === 'function') showView('settings');
+});
+</script>
+"""
+    return _inject_before_body_close(new_src, settings_js)

@@ -64,5 +64,5 @@ def test_ingest_no_config_redirects_with_none(client):
 def test_settings_page_shows_news_section(client):
     r = client.get("/settings")
     assert r.status_code == 200
-    assert "News (Brave Search)" in r.text
+    assert ">News</h2>" in r.text
     assert "Fetch news now" in r.text

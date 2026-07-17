@@ -41,11 +41,22 @@ in groups 1 and 3 stops matching, the splice fails.
 | `_STATS_RE` | `<span class="session-stats">` | rename `.session-stats` or change its tag |
 | `_OUTCOMES_LIST_RE` | `<div id="outcomes-list">` … 5 closing `</div>`s | rename the `id`, **or change nesting depth after the ledger** |
 | `_SUM_RE_TMPL` | `<div class="summary-num" id="sum-{type}">` | rename `.summary-num`, or change the `sum-*` id scheme |
+| `_SETTINGS_SECTIONS_RE` | `<!-- SETTINGS SECTIONS -->` … `<!-- /SETTINGS SECTIONS -->` | delete either sentinel |
 
 ⚠️ **The closing-`</div>` counts in `_TAB_PROP_RE` and `_OUTCOMES_LIST_RE` are
 literal.** Wrapping the artifact pane or the ledger in one extra container div breaks
 them, even though nothing was renamed. This is the most likely accidental break during
 a restyle.
+
+⚠️ **`_OUTCOMES_LIST_RE`'s five `</div>`s reach past the Outcomes view to the closes of
+`#main` and `#app`.** So `#view-outcomes` must stay the **last child of `#main`** — adding
+any sibling view after it breaks the Outcomes render with nothing renamed and nothing
+re-wrapped. This is why `<!-- SETTINGS VIEW -->` sits *above* `<!-- OUTCOMES VIEW -->`
+rather than at the end where it reads more naturally. DOM order is cosmetic here:
+`.view` is `position:absolute` and toggled by `showView()`.
+
+`_SETTINGS_SECTIONS_RE` is sentinel-anchored precisely to avoid joining this club.
+Prefer sentinels over `</div>` counting for anything new.
 
 ### `sum-*` ids required by the summary strip
 
@@ -80,14 +91,12 @@ real backend calls. They bind to:
 |---|---|
 | `.nav-item[data-nav="inbox"]` | routes to `/` |
 | `.nav-item[data-nav="outcomes"]` | routes to `/outcomes` |
-| `.nav-item` | fallback insertion point for the Settings link |
-| `.rail-spacer` | preferred insertion point for the Settings link |
+| `.nav-item[data-nav="workspace"]` | routes to `/workspaces` |
 | `.filter-pill` | Inbox filtering |
 | `#quick-add-input` | quick-add question |
 | `#chat-input` | war-room message |
-| `#pmqs-settings-nav` | guard against double-inserting the Settings link |
 
-The `data-nav` attribute values (`inbox`, `outcomes`) are part of the contract.
+The `data-nav` attribute values (`inbox`, `workspace`, `outcomes`) are part of the contract.
 So are `data-tab` (`doc`, `chart`, `evidence`, `proposed`) and `data-type`.
 
 ---
@@ -108,6 +117,7 @@ evidence-item  evidence-title  evidence-sub
 proposed-item  proposed-title  proposed-actions  p-add
 ledger-item  ledger-main  ledger-src  ledger-time
 summary-num  inbox-header  for  against  system
+set-section  set-scope  set-label  set-input  set-hint  set-row  set-btn
 ```
 
 Card variant classes (`.card.saved`, `.card.asked`, `.card.system`, `.card.news`) are
@@ -127,9 +137,10 @@ chosen in `question_card_html()` and must keep working as modifiers on `.card`.
 `assets/logo-mark.svg`. Every render path loads through `_load_template()`, so the splice
 happens in exactly one place.
 
-**Why it isn't just inline in the template:** `render_settings()` and `render_error()`
-build their own standalone documents, and #28 needs the same mark as a favicon. Inline
-would mean three copies and inevitable drift.
+**Why it isn't just inline in the template:** `render_error()` builds its own standalone
+document, and #28 needs the same mark as a favicon. Inline would mean three copies and
+inevitable drift. (`render_settings()` used to be the third such document; as of #90 it
+renders through the template like every other view.)
 
 **To change the mark, edit `assets/logo-mark.svg` and nothing else.** That file carries
 the design brief for §2's open per-facet bevel work.
