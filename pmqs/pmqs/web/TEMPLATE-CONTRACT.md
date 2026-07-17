@@ -43,6 +43,7 @@ in groups 1 and 3 stops matching, the splice fails.
 | `_SUM_RE_TMPL` | `<div class="summary-num" id="sum-{type}">` | rename `.summary-num`, or change the `sum-*` id scheme |
 | `_SETTINGS_SECTIONS_RE` | `<!-- SETTINGS SECTIONS -->` … `<!-- /SETTINGS SECTIONS -->` | delete either sentinel |
 | `_IDENTITY_RE` | `<!-- IDENTITY -->` … `<!-- /IDENTITY -->` | delete either sentinel |
+| `_PS_SETTINGS_RE` | `<a class="ps-item" id="ps-settings" href="…">` | rename the id, or reorder the class/id attributes |
 
 ⚠️ **The closing-`</div>` counts in `_TAB_PROP_RE` and `_OUTCOMES_LIST_RE` are
 literal.** Wrapping the artifact pane or the ledger in one extra container div breaks
@@ -98,7 +99,8 @@ real backend calls. They bind to:
 | `.filter-pill` | Inbox filtering |
 | `#quick-add-input` | quick-add question |
 | `#chat-input` | war-room message |
-| `#identity-block` | Settings link; `href` re-prefixed per workspace |
+| `#identity-block` | Account Settings link. Always `/settings`, never prefixed — account settings scopes to no product |
+| `#ps-settings` | Product Settings link; `href` spliced to the current product |
 
 The `data-nav` attribute values (`inbox`, `workspace`, `outcomes`) are part of the contract.
 So are `data-tab` (`doc`, `chart`, `evidence`, `proposed`) and `data-type`.

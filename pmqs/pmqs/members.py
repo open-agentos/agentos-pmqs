@@ -79,3 +79,18 @@ def set_display_name(db: OrmSession, *, member_id: str, display_name: str) -> Me
     member.display_name = display_name.strip() or DEFAULT_MEMBER_DISPLAY_NAME
     db.commit()
     return member
+
+
+def list_product_members(db: OrmSession, *, product_id: str) -> list[tuple[Member, str]]:
+    """Everyone attached to a Product, as (Member, role) (#98).
+
+    Read-only: Product Settings shows who's here. Invites are not built and `role` still
+    has no behaviour behind it (build-spec §7 says don't build RBAC on this).
+    """
+    rows = db.scalars(select(Membership).where(Membership.product_id == product_id)).all()
+    out = []
+    for ms in rows:
+        member = db.get(Member, ms.member_id)
+        if member is not None:
+            out.append((member, ms.role))
+    return out

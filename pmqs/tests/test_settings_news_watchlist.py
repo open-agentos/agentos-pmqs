@@ -18,7 +18,7 @@ from pmqs.api.app import app
 from pmqs.db import Base, get_session
 from pmqs.news import fetch
 from pmqs.news.watchlist import MAX_QUERIES, build_queries, parse_field
-from pmqs.web.render import render_settings
+from pmqs.web.render import render_product_settings, render_settings
 
 
 @pytest.fixture
@@ -199,10 +199,15 @@ def test_ingest_searches_the_watchlist_not_just_the_raw_queries(db, monkeypatch)
 
 # --- render ---
 
-def test_watchlist_fields_render(db):
-    html = render_settings(db)
+def test_watchlist_fields_render_on_the_product_page(db):
+    p = products.get_or_create_default_product(db)
+    html = render_product_settings(db, p, workspace_slug=p.slug)
     for field in ("wl_industry", "wl_keywords", "wl_companies", "wl_products", "wl_sources"):
         assert f'name="{field}"' in html
+
+
+def test_throttles_render_on_the_account_page(db):
+    html = render_settings(db)
     assert 'name="freshness"' in html
     assert 'name="count"' in html
     assert 'name="news_enabled"' in html
@@ -224,39 +229,46 @@ def test_status_line_says_never_before_the_first_run(db):
 
 
 def test_composed_queries_are_previewed(db):
-    products.set_news_config(db, products.get_or_create_default_product(db),
-                             watchlist={"keywords": ["agent orchestration"],
-                                        "sources": ["techcrunch.com"]})
-    html = render_settings(db)
+    p = products.get_or_create_default_product(db)
+    products.set_news_config(db, p, watchlist={"keywords": ["agent orchestration"],
+                                               "sources": ["techcrunch.com"]})
+    html = render_product_settings(db, p, workspace_slug=p.slug)
     assert "&quot;agent orchestration&quot; site:techcrunch.com" in html
 
 
 # --- routes ---
 
-def test_watchlist_round_trips_through_the_form(client):
+def test_watchlist_round_trips_through_the_product_form(client):
     s0 = client._session_factory()
-    products.get_or_create_default_product(s0)
+    slug = products.get_or_create_default_product(s0).slug
     s0.close()
-    r = client.post("/settings/news", data={
-        "news_enabled": "1",
-        "news_api_key_ref": "BRAVE_API_KEY",
+    r = client.post(f"/w/{slug}/settings", data={
         "wl_industry": "agent orchestration",
         "wl_companies": "Anthropic\nOpenAI",
         "wl_sources": "techcrunch.com",
-        "count": "15", "freshness": "pd", "top_n": "5", "min_relevance": "0.7",
     }, follow_redirects=False)
     assert r.status_code == 303
     s = client._session_factory()
-    # Split as of #96: watchlist on the Product, throttles on the account.
     cfg = products.get_news_config(s, products.list_products(s)[0])
     assert cfg["watchlist"]["companies"] == ["Anthropic", "OpenAI"]
     assert cfg["watchlist"]["sources"] == ["techcrunch.com"]
-    acct = settings.get_news_config(s)
-    assert acct["count"] == 15 and acct["freshness"] == "pd"
+    # What the form saved is what ingest() will run -- one composer, no drift.
     assert settings.effective_news_queries(s, products.list_products(s)[0]) == [
         '"agent orchestration" site:techcrunch.com',
         "Anthropic site:techcrunch.com",
         "OpenAI site:techcrunch.com"]
+    s.close()
+
+
+def test_throttles_round_trip_through_the_account_form(client):
+    r = client.post("/settings/news", data={
+        "news_enabled": "1", "news_api_key_ref": "BRAVE_API_KEY",
+        "count": "15", "freshness": "pd", "top_n": "5", "min_relevance": "0.7",
+    }, follow_redirects=False)
+    assert r.status_code == 303
+    s = client._session_factory()
+    acct = settings.get_news_config(s)
+    assert acct["count"] == 15 and acct["freshness"] == "pd" and acct["top_n"] == 5
     s.close()
 
 

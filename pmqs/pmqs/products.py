@@ -111,6 +111,43 @@ def set_news_config(
     return get_news_config(db, product)
 
 
+def update_product(db: OrmSession, product: Product, *, display_name: str = "",
+                   nickname: str = "", repo: str = "") -> Product:
+    """Edit a Product's identity (#98).
+
+    `slug` is NOT touched. It's derived from the nickname at creation and stays put --
+    renaming a product must not move its URLs out from under any link to them. The
+    Settings view says so rather than letting the PM guess.
+
+    A blank field is "unchanged", not "clear it": these are text inputs rendered with
+    the current value, so blank means the PM emptied a box we shouldn't have let them
+    empty. Raises ValueError on a malformed repo ref.
+    """
+    if display_name:
+        product.display_name = display_name.strip()
+    product.nickname = nickname.strip() or None
+    if repo:
+        org, repo_name = parse_repo_ref(repo)  # raises ValueError
+        product.org, product.repo = org, repo_name
+    db.commit()
+    return product
+
+
+def set_lens_weights(db: OrmSession, product: Product, weights: dict[str, float]) -> Product:
+    """Store a PARTIAL lens-weight override. See weights_for for the merge."""
+    product.lens_weights = json.dumps(weights) if weights else None
+    db.commit()
+    return product
+
+
+def set_archived(db: OrmSession, product: Product, *, archived: bool) -> Product:
+    """Hide a Product from the switcher. `archived` has been filtered by list_products
+    since #52 with nothing to set it (#98). Nothing is deleted."""
+    product.archived = archived
+    db.commit()
+    return product
+
+
 def weights_for(db: OrmSession, product_id: str | None) -> dict[str, float]:
     """This Product's lens weights, merged OVER the defaults (#97).
 

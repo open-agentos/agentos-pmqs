@@ -39,16 +39,28 @@ def test_news_evidence_rendered_hedged_in_workspace(db):
     assert "Rival raises $50M" in html
 
 
-def test_settings_has_news_section_and_masks_key(db):
+def test_account_settings_has_the_news_key_and_masks_it(db):
     settings.set_news_config(db, api_key_raw="SECRETBRAVE")
-    products.set_news_config(db, products.get_or_create_default_product(db),
-                             queries=["ai agents"], product_profile="PMQs profile")
     html = render_settings(db)
     assert ">News</h2>" in html
     assert "Fetch news now" in html
-    assert "ai agents" in html
-    assert "PMQs profile" in html
     assert "SECRETBRAVE" not in html  # masked, never echoed
+
+
+def test_the_watchlist_is_on_the_product_page_not_the_account_page(db):
+    """#98: the watchlist and profile belong to the Product."""
+    from pmqs.web.render import render_product_settings
+
+    p = products.get_or_create_default_product(db)
+    products.set_news_config(db, p, queries=["ai agents"], product_profile="PMQs profile")
+
+    account = render_settings(db)
+    assert "ai agents" not in account
+    assert "PMQs profile" not in account
+
+    product_page = render_product_settings(db, p, workspace_slug=p.slug)
+    assert "ai agents" in product_page
+    assert "PMQs profile" in product_page
 
 
 def test_inbox_can_reach_settings(db):

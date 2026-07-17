@@ -114,16 +114,18 @@ def test_settings_page_route(client):
     assert 'id="view-settings"' in r.text
 
 
-def test_workspace_prefixed_settings_keeps_you_in_the_workspace(client):
+def test_workspace_prefixed_settings_is_the_products_settings(client):
+    """#98 repurposed this URL: it used to render ACCOUNT settings behind a product
+    prefix that scoped nothing."""
     s = client._session_factory()
-    p = products.get_or_create_product(s, org="open-agentos", repo="agentos-pmqs")
-    slug = p.slug
+    slug = products.get_or_create_product(s, org="open-agentos", repo="agentos-pmqs").slug
     s.close()
 
     r = client.get(f"/w/{slug}/settings")
     assert r.status_code == 200
-    # The slug scopes nothing, but the rail's links stay inside the product.
-    assert f"'/w/{slug}/outcomes'" in r.text
+    assert 'name="wl_industry"' in r.text      # product fields
+    assert 'name="api_key_ref"' not in r.text  # not the account's
+    assert f"'/w/{slug}/outcomes'" in r.text   # rail stays in the product
 
 
 def test_unknown_workspace_slug_404s(client):
@@ -220,9 +222,22 @@ def test_display_name_round_trips_through_the_form(client):
     assert "Grace H" in client.get("/settings").text
 
 
-def test_identity_link_stays_inside_the_workspace(client):
+def test_identity_link_is_never_prefixed(client):
+    """#98: /w/{slug}/settings is the PRODUCT's settings now. Account settings has no
+    product scope, so the identity block points at an unprefixed /settings from
+    everywhere -- including inside a workspace."""
     s = client._session_factory()
     slug = products.get_or_create_product(s, org="open-agentos", repo="agentos-pmqs").slug
     s.close()
     r = client.get(f"/w/{slug}/")
-    assert f"'/w/{slug}/settings'" in r.text
+    idb = r.text.split('id="identity-block"')[1].split(">")[0]
+    assert 'href="/settings"' in idb
+    assert f"/w/{slug}/settings" not in idb
+
+
+def test_switcher_links_to_the_current_products_settings(client):
+    s = client._session_factory()
+    slug = products.get_or_create_product(s, org="open-agentos", repo="agentos-pmqs").slug
+    s.close()
+    r = client.get(f"/w/{slug}/")
+    assert f'id="ps-settings" href="/w/{slug}/settings"' in r.text
