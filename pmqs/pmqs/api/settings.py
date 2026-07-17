@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import products
+from pmqs import members, products
 from pmqs import settings as settings_mod
 from pmqs.db import get_session
 from pmqs.web.render import render_error, render_settings
@@ -36,6 +36,7 @@ def settings_page(workspace_slug: str | None = None, db: OrmSession = Depends(ge
 @router.post("/w/{workspace_slug}/settings")
 def save_settings(
     workspace_slug: str | None = None,
+    display_name: str = Form(default=""),
     provider: str = Form(...),
     model: str = Form(...),
     api_key_ref: str = Form(default=""),
@@ -43,6 +44,9 @@ def save_settings(
     base_url: str = Form(default=""),
     db: OrmSession = Depends(get_session),
 ):
+    if display_name:
+        members.set_display_name(db, member_id=members.current_member_id(db),
+                                 display_name=display_name)
     # Preserve an existing inline key if the field was left blank.
     if not api_key_raw:
         current = settings_mod.get_llm(db)

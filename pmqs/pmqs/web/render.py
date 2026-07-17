@@ -75,24 +75,10 @@ document.addEventListener('DOMContentLoaded', function(){{
     e.stopImmediatePropagation();
     window.location.href = '{prefix}/workspaces';
   }}, true);
-  // Phase 4: add a Settings link to the left rail (template has no way to reach /settings).
-  // Settings stays account-wide (not workspace-scoped), so this one is deliberately
-  // NOT prefixed even on a /w/{{slug}}/ page.
-  var rail = document.querySelector('.rail-spacer') || document.querySelector('.nav-item');
-  if (rail && !document.getElementById('pmqs-settings-nav')) {{
-    var s = document.createElement('div');
-    s.className = 'nav-item';
-    s.id = 'pmqs-settings-nav';
-    s.textContent = 'Settings';
-    s.style.cursor = 'pointer';
-    s.addEventListener('click', function(){{ window.location.href = '/settings'; }});
-    // insert before the rail spacer if present, else after the last nav-item
-    if (rail.classList && rail.classList.contains('rail-spacer')) {{
-      rail.parentNode.insertBefore(s, rail);
-    }} else {{
-      rail.parentNode.appendChild(s);
-    }}
-  }}
+  // Settings hangs off the identity block, not the nav (#91). The link is real markup
+  // in the template; all this does is keep it inside the current product's prefix.
+  var idb = document.getElementById('identity-block');
+  if (idb) idb.setAttribute('href', '{prefix}/settings');
 }});
 </script>
 """
@@ -164,6 +150,37 @@ def _apply_product_switcher(src: str, db: Any, workspace_slug: str | None) -> st
     items_html = "\n            ".join(items)
     src = _PS_ITEMS_RE.sub(lambda m: f"{m.group(1)}\n            {items_html}\n            {m.group(3)}", src, count=1)
     return src
+
+
+_IDENTITY_RE = re.compile(r"(<!-- IDENTITY -->)(.*?)(<!-- /IDENTITY -->)", re.DOTALL)
+
+
+def _apply_identity(src: str, db: Any) -> str:
+    """Splice the acting Member's name into the rail's identity block (#91).
+
+    The block used to be a string literal in the template while a real Member row sat
+    unrendered in the DB. Goes through members.current_member_id() -- the Phase 5 auth
+    seam -- rather than reaching for the Member directly, so there stays exactly one
+    function to replace when real identities attach.
+
+    Like the switcher, a 0-match splice is a silent no-op: the block degrades to the
+    template's static text rather than taking the page down.
+    """
+    from pmqs import members as members_repo
+    from pmqs.models import Member
+
+    member = db.get(Member, members_repo.current_member_id(db))
+    if member is None:
+        return src
+    name = html.escape(member.display_name or members_repo.DEFAULT_MEMBER_DISPLAY_NAME)
+    block = f"<b>{name}</b><br>Settings"
+    return _IDENTITY_RE.sub(lambda m: f"{m.group(1)}{block}{m.group(3)}", src, count=1)
+
+
+def _apply_rail(src: str, db: Any, workspace_slug: str | None) -> str:
+    """The rail's two db-backed regions. Every render path draws the same rail, so they
+    splice together rather than each caller remembering both."""
+    return _apply_identity(_apply_product_switcher(src, db, workspace_slug), db)
 
 
 def _load_template(template_path=None) -> str:
@@ -252,7 +269,7 @@ def render_inbox(questions: list[Any], template_path: Path | None = None,
     """
     src = _load_template(template_path)
     if db is not None:
-        src = _apply_product_switcher(src, db, workspace_slug)
+        src = _apply_rail(src, db, workspace_slug)
 
     banner = _flash_banner(flash) + _refresh_banner(refreshed)
     if questions:
@@ -523,7 +540,7 @@ def render_workspace(
     """
     src = _load_template(template_path)
     if db is not None:
-        src = _apply_product_switcher(src, db, workspace_slug)
+        src = _apply_rail(src, db, workspace_slug)
 
     title = html.escape(session.topic or "War-room session")
     convo = "\n".join(_msg_html(m) for m in messages) or (
@@ -650,7 +667,7 @@ def render_workspace_list(
     than shipping every row to the browser and hiding some with CSS.
     """
     src = _load_template(template_path)
-    src = _apply_product_switcher(src, db, workspace_slug)
+    src = _apply_rail(src, db, workspace_slug)
 
     items = [_workspace_row_html(r) for r in rows]
     body = "\n".join(items) if items else (
@@ -742,7 +759,7 @@ def render_outcomes(db: Any, template_path: Path | None = None, *, product_id: s
     from pmqs import repository
 
     src = _load_template(template_path)
-    src = _apply_product_switcher(src, db, workspace_slug)
+    src = _apply_rail(src, db, workspace_slug)
     # Product-scoped, visibility-filtered (build-spec §4/§5): every member's outcomes,
     # minus other members' private rooms. Already newest-first from the query.
     from pmqs import members as members_repo
@@ -805,7 +822,7 @@ def _set_field(label: str, name: str, value: str, *, placeholder: str = "",
     return f'<label class="set-label">{html.escape(label)}</label>{field}{hint_html}'
 
 
-def _settings_sections(db: Any) -> str:
+def _settings_sections(db: Any, prefix: str = "") -> str:
     """Build the Settings sections. The API key is NEVER echoed back: shown masked."""
     from pmqs import settings as settings_mod
 
@@ -814,9 +831,17 @@ def _settings_sections(db: Any) -> str:
     news = settings_mod.get_news_config(db)
     n_key_display = "•••••••• (stored)" if news.get("api_key_raw") else html.escape(news.get("api_key_ref") or "")
 
-    you = f"""<form method="post" action="/settings">
+    from pmqs import members as members_repo
+    from pmqs.models import Member
+
+    member = db.get(Member, members_repo.current_member_id(db))
+    display_name = html.escape(member.display_name if member else "")
+
+    you = f"""<form method="post" action="{prefix}/settings">
 <div class="set-section"><h2>You</h2>
-<div class="set-scope">Your model and your key. Applies to every product.</div>
+<div class="set-scope">Your name, your model, your key. Applies to every product.</div>
+{_set_field("Display name", "display_name", display_name, placeholder="You",
+            hint="Shown in the left rail and against every outcome you produce.")}
 {_set_field("Provider", "provider", html.escape(cfg.get("provider", "")), placeholder="anthropic")}
 {_set_field("Model", "model", html.escape(cfg.get("model", "")), placeholder="anthropic/claude-haiku-4-5-20251001")}
 {_set_field("API key env var (recommended)", "api_key_ref", key_display, placeholder="ANTHROPIC_API_KEY",
@@ -827,7 +852,7 @@ def _settings_sections(db: Any) -> str:
 <button class="set-btn" type="submit">Save</button>
 </div></form>"""
 
-    news_section = f"""<form method="post" action="/settings/news">
+    news_section = f"""<form method="post" action="{prefix}/settings/news">
 <div class="set-section"><h2>News</h2>
 <div class="set-scope">Applies to all products — per-product watchlists are a later change (#78).</div>
 {_set_field("Brave API key env var", "news_api_key_ref", n_key_display, placeholder="BRAVE_API_KEY",
@@ -846,13 +871,13 @@ def _settings_sections(db: Any) -> str:
 </div>
 <button class="set-btn" type="submit">Save</button>
 </div></form>
-<form method="post" action="/news/ingest">
+<form method="post" action="{prefix}/news/ingest">
 <div class="set-section"><h2>Fetch news now</h2>
 <div class="set-scope">Runs a manual ingestion + relevance pass against your configured queries.</div>
 <button class="set-btn" type="submit">Fetch news now</button>
 </div></form>"""
 
-    advanced = f"""<form method="post" action="/settings/advanced">
+    advanced = f"""<form method="post" action="{prefix}/settings/advanced">
 <div class="set-section"><h2>Advanced</h2>
 <div class="set-scope">Rarely needs changing.</div>
 {_set_field("Context feed budget (characters)", "char_budget",
@@ -875,12 +900,12 @@ def render_settings(db: Any, template_path: Path | None = None, *,
     The API key is NEVER echoed back: shown masked. See _settings_sections.
     """
     src = _load_template(template_path)
-    src = _apply_product_switcher(src, db, workspace_slug)
-    sections = _settings_sections(db)
+    src = _apply_rail(src, db, workspace_slug)
+    _prefix = f"/w/{workspace_slug}" if workspace_slug else ""
+    sections = _settings_sections(db, _prefix)
     new_src, n = _SETTINGS_SECTIONS_RE.subn(lambda m: f"{m.group(1)}\n{sections}\n{m.group(3)}", src)
     if n == 0:
         raise RuntimeError("Could not locate Settings sections region in app template")
-    _prefix = f"/w/{workspace_slug}" if workspace_slug else ""
     settings_js = _live_js_common(_prefix) + """
 <script>
 document.addEventListener('DOMContentLoaded', function(){

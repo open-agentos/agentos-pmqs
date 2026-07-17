@@ -42,6 +42,7 @@ in groups 1 and 3 stops matching, the splice fails.
 | `_OUTCOMES_LIST_RE` | `<div id="outcomes-list">` … 5 closing `</div>`s | rename the `id`, **or change nesting depth after the ledger** |
 | `_SUM_RE_TMPL` | `<div class="summary-num" id="sum-{type}">` | rename `.summary-num`, or change the `sum-*` id scheme |
 | `_SETTINGS_SECTIONS_RE` | `<!-- SETTINGS SECTIONS -->` … `<!-- /SETTINGS SECTIONS -->` | delete either sentinel |
+| `_IDENTITY_RE` | `<!-- IDENTITY -->` … `<!-- /IDENTITY -->` | delete either sentinel |
 
 ⚠️ **The closing-`</div>` counts in `_TAB_PROP_RE` and `_OUTCOMES_LIST_RE` are
 literal.** Wrapping the artifact pane or the ledger in one extra container div breaks
@@ -74,6 +75,8 @@ These HTML comments are **structural markers, not documentation.** Do not tidy t
 | `<!-- LOGO MARK -->` | **load-bearing** — `_load_template()` replaces it with the mark from `logo.py`. Delete it and the logo silently disappears. |
 | `<!-- INBOX VIEW -->` | not currently matched; keep for symmetry |
 | `<!-- OUTCOMES VIEW -->` | not currently matched; keep for symmetry |
+| `<!-- SETTINGS SECTIONS -->` / `<!-- /SETTINGS SECTIONS -->` | **load-bearing** — `_SETTINGS_SECTIONS_RE` |
+| `<!-- IDENTITY -->` / `<!-- /IDENTITY -->` | **load-bearing** — `_IDENTITY_RE` |
 | `<!-- LEFT RAIL -->` | not currently matched; keep for symmetry |
 | `<!-- MAIN -->` | not currently matched; keep for symmetry |
 
@@ -95,6 +98,7 @@ real backend calls. They bind to:
 | `.filter-pill` | Inbox filtering |
 | `#quick-add-input` | quick-add question |
 | `#chat-input` | war-room message |
+| `#identity-block` | Settings link; `href` re-prefixed per workspace |
 
 The `data-nav` attribute values (`inbox`, `workspace`, `outcomes`) are part of the contract.
 So are `data-tab` (`doc`, `chart`, `evidence`, `proposed`) and `data-type`.

@@ -145,8 +145,10 @@ svg.pulse{width:100%;height:28px;display:block;}
   font-family:var(--font-mono);font-size:0.8rem;color:var(--text-secondary);}
 .metric-row span:last-child{color:var(--text-primary);font-weight:bold;}
 
-.org{margin-top:16px;padding-top:14px;border-top:1px solid var(--border-default);font-size:11px;color:var(--text-muted);}
+.org{display:block;margin-top:16px;padding-top:14px;border-top:1px solid var(--border-default);
+  font-size:11px;color:var(--text-muted);text-decoration:none;cursor:pointer;}
 .org b{color:var(--text-secondary);font-weight:500;}
+.org:hover{color:var(--text-secondary);} .org:hover b{color:var(--text-primary);}
 
 /* ---------- MAIN ---------- */
 #main{flex:1;overflow:hidden;position:relative;}
@@ -403,7 +405,7 @@ textarea.set-input{min-height:64px;}
       </div>
     </div>
 
-    <div class="org"><b>Matt McAlister</b><br>Product · Open AgentOS</div>
+    <a class="org" id="identity-block" href="/settings" title="Settings"><!-- IDENTITY --><b>You</b><br>Settings<!-- /IDENTITY --></a>
   </div>
 
   <!-- MAIN -->

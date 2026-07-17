@@ -68,3 +68,14 @@ def current_member_id(db: OrmSession) -> str:
     Phase 5 has exactly one function to replace instead of a scavenger hunt.
     """
     return get_or_create_default_member(db).id
+
+
+def set_display_name(db: OrmSession, *, member_id: str, display_name: str) -> Member:
+    """Rename the acting Member (#91). A blank name falls back to the default rather
+    than leaving the rail's identity block empty."""
+    member = db.get(Member, member_id)
+    if member is None:
+        raise KeyError(member_id)
+    member.display_name = display_name.strip() or DEFAULT_MEMBER_DISPLAY_NAME
+    db.commit()
+    return member
