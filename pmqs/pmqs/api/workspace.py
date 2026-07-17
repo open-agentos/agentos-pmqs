@@ -73,12 +73,32 @@ def open_workspace(
 
 
 @router.get("/workspace/{session_id}", response_class=HTMLResponse)
-def workspace_view(session_id: str, db: OrmSession = Depends(get_session)):
+@router.get("/w/{workspace_slug}/workspace/{session_id}", response_class=HTMLResponse)
+def workspace_view(session_id: str, workspace_slug: str | None = None,
+                   db: OrmSession = Depends(get_session)):
+    """The war room.
+
+    Both mounts render the same room: the rail's product context is derived from the
+    SESSION's own product_id either way, never from the URL. `workspace_slug` exists so
+    the navigable URL can carry the product prefix like every other navigable route --
+    open_workspace() redirects here with it, and the Workspaces list links here with it.
+    Until #104 the prefixed twin didn't exist, so both 404'd and the war room was
+    unreachable from anywhere under /w/{slug}/.
+
+    A slug that doesn't match the session's product is a 404, not a render. Serving
+    product A's room under a URL claiming product B is a crossed data stream, which is
+    the one hard requirement on the multi-product work -- and it would put the wrong
+    product in the rail and the switcher.
+    """
     sess = repository.get_session_row(db, session_id)
     if sess is None:
         return HTMLResponse(render_error("War-room session not found.", 404), status_code=404)
     doc = json.loads(sess.position_doc) if sess.position_doc else None
     product = products.get_product(db, sess.product_id) if sess.product_id else None
+    if workspace_slug is not None and (product is None or product.slug != workspace_slug):
+        return HTMLResponse(
+            render_error("War-room session not found in this product.", 404), status_code=404
+        )
     return HTMLResponse(
         render_workspace(
             sess,
