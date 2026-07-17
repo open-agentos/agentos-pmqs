@@ -129,7 +129,7 @@ each, or real data renders unstyled — a failure that looks like a design bug, 
 wiring bug:
 
 ```
-card  card-main  card-title  card-meta  card-actions  card-age  selected
+card  card-main  card-title  card-meta  card-actions  card-age  selected  rank-badge
 icon-btn  primary  pill  quick-add
 inbox-list  inbox-detail  detail-empty  detail-title  detail-section  detail-label
 detail-body  detail-actions  d-btn  source-card  source-ref  source-meta

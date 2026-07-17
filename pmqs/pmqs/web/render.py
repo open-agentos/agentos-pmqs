@@ -300,8 +300,13 @@ def question_detail_html(q: Any) -> str:
     )
 
 
-def question_card_html(q: Any) -> str:
-    """Render one Question into the template's .card markup."""
+def question_card_html(q: Any, rank: int | None = None) -> str:
+    """Render one Question into the template's .card markup.
+
+    `rank` (#110) is the row's 1-based index in the already-sorted list. It is position,
+    not magnitude -- the `score N.NN` pill remains the magnitude. Nothing is recomputed
+    here; the caller's ordering is the whole input.
+    """
     source = getattr(q, "source", "system")
     status = getattr(q, "status", "proposed")
     lens_tags = getattr(q, "lens_tags_list", None)
@@ -337,13 +342,19 @@ def question_card_html(q: Any) -> str:
     ref = html.escape(str(ev[0].get("ref", ""))) if ev else ""
     age_span = f'<span class="card-age">{ref}</span>' if ref else ""
 
+    # #110: the Inbox claims a ranked list; ordering was the only tell.
+    badge = ""
+    if rank is not None:
+        top = " top" if rank <= 2 else ""
+        badge = f'<span class="rank-badge{top}">{rank}</span>'
+
     qid = html.escape(str(getattr(q, "id", "") or ""))
     saved_style = ' style="margin-top:22px;"' if variant == "saved" else ""
     # data-qid + click SELECTS this question and swaps the detail pane (#107). The ⚔
     # icon-btn below still navigates straight to the war-room, so the old path stays.
     return f"""        <div class="card {variant}"{saved_style} data-qid="{qid}" onclick="pmqsSelect('{qid}')">
           <div class="card-main">
-            <div class="card-title">{title}</div>
+            <div class="card-title">{badge}{title}</div>
             <div class="card-meta">
               {' '.join(pills)}
               {age_span}
@@ -374,7 +385,9 @@ def render_inbox(questions: list[Any], template_path: Path | None = None,
 
     banner = _flash_banner(flash) + _refresh_banner(refreshed)
     if questions:
-        cards_html = banner + "\n\n".join(question_card_html(q) for q in questions)
+        cards_html = banner + "\n\n".join(
+            question_card_html(q, rank=i) for i, q in enumerate(questions, start=1)
+        )
     else:
         # Explicit empty-state with an action — do NOT silently swap to a different
         # data source (that caused the home-page-changes-after-war-room bug).
