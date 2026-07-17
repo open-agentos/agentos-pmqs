@@ -156,7 +156,33 @@ svg.pulse{width:100%;height:28px;display:block;}
 .view.active{display:block;}
 
 /* ---------- INBOX VIEW ---------- */
-.inbox-wrap{max-width:820px;margin:0 auto;padding:40px 32px 80px;}
+.inbox-wrap{max-width:1180px;margin:0 auto;padding:40px 32px 80px;display:flex;gap:26px;align-items:flex-start;}
+.inbox-list{width:470px;flex-shrink:0;min-width:0;}
+.inbox-detail{flex:1;min-width:0;position:sticky;top:40px;}
+.card.selected{border-color:var(--accent-teal-dim);border-left-color:var(--accent-teal-dim);background:var(--bg-raised);}
+.card.selected.system,.card.selected.asked,.card.selected.saved{border-left-color:var(--accent-teal-dim);}
+
+/* Inbox detail pane — rendered by render.py, swapped client-side on selection. */
+.detail-empty{color:var(--text-muted);font-size:13px;border:1px dashed var(--border-default);
+  border-radius:6px;padding:28px 20px;text-align:center;}
+.detail-title{font-family:var(--font-display);font-size:19px;font-weight:600;color:var(--text-primary);
+  line-height:1.35;letter-spacing:-0.01em;margin-bottom:14px;}
+.source-card{background:var(--bg-surface);border:1px solid var(--border-default);
+  border-left:3px solid var(--accent-teal-dim);border-radius:6px;padding:12px 14px;margin-bottom:18px;}
+.source-ref{font-size:13px;color:var(--text-primary);margin-bottom:7px;}
+.source-ref a{color:var(--accent-teal-fg);text-decoration:none;}
+.source-ref a:hover{text-decoration:underline;}
+.source-meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.detail-section{margin-bottom:18px;}
+.detail-label{font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);
+  margin-bottom:7px;font-family:var(--font-mono);}
+.detail-body{font-size:13.5px;line-height:1.6;color:var(--text-secondary);white-space:pre-wrap;}
+.detail-actions{display:flex;gap:8px;flex-wrap:wrap;padding-top:16px;border-top:1px solid var(--border-default);}
+.d-btn{font-family:var(--font-body);font-size:12.5px;padding:8px 15px;border-radius:6px;cursor:pointer;
+  border:1px solid var(--border-default);background:var(--bg-raised);color:var(--text-secondary);transition:all .12s;}
+.d-btn:hover{color:var(--text-primary);border-color:var(--text-muted);}
+.d-btn.primary{background:var(--accent-gold);border-color:var(--accent-gold);color:var(--bg-main);font-weight:600;}
+.d-btn.primary:hover{background:var(--accent-gold-dim);border-color:var(--accent-gold-dim);color:var(--text-primary);}
 .inbox-header{font-family:var(--font-display);margin-bottom:6px;font-size:26px;font-weight:600;letter-spacing:-0.02em;}
 .opener{color:var(--text-secondary);font-size:14px;margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--border-default);}
 .opener b{color:var(--text-primary);font-weight:500;}
@@ -416,6 +442,7 @@ textarea.set-input{min-height:64px;}
     <!-- INBOX VIEW -->
     <div class="view active" id="view-inbox">
       <div class="inbox-wrap">
+        <div class="inbox-list">
         <div class="inbox-header">Inbox</div>
 
         <div class="filter-bar">
@@ -430,6 +457,8 @@ textarea.set-input{min-height:64px;}
           <input type="text" id="quick-add-input" placeholder="Ask a question…" onkeydown="if(event.key==='Enter')addQuestion()">
           <button class="quick-add-btn" onclick="addQuestion()">+</button>
         </div>
+
+        <!-- INBOX CARDS -->
 
         <div class="card system" onclick="openWorkspace()">
           <div class="card-main">
@@ -509,6 +538,12 @@ textarea.set-input{min-height:64px;}
             <div class="icon-btn primary" title="War-room">⚔</div>
             <div class="icon-btn" title="Dismiss">✕</div>
           </div>
+        </div>
+        <!-- /INBOX CARDS -->
+        </div>
+
+        <div class="inbox-detail" id="inbox-detail">
+          <div class="detail-empty">Select a question to see its detail.</div>
         </div>
 
       </div>

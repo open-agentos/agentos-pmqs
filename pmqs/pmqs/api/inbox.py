@@ -146,6 +146,9 @@ def api_questions(
             {
                 "id": q.id,
                 "title": q.title,
+                # #107: the Inbox detail pane needs both.
+                "description": q.description,
+                "created_at": q.created_at,
                 "status": q.status,
                 "source": q.source,
                 "lens_tags": q.lens_tags_list,

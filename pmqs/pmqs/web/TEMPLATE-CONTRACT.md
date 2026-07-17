@@ -32,7 +32,7 @@ in groups 1 and 3 stops matching, the splice fails.
 
 | Constant | Anchors on | Breaks if you… |
 |---|---|---|
-| `_CARDS_REGION_RE` | `<div class="quick-add">` … `</div></div>` + `<!-- WORKSPACE VIEW -->` | rename `.quick-add`, delete the `WORKSPACE VIEW` comment, or change nesting depth between the Inbox list and that comment |
+| `_CARDS_REGION_RE` | `<!-- INBOX CARDS -->` … `<!-- /INBOX CARDS -->` | delete either sentinel |
 | `_WS_TITLE_RE` | `<span class="ws-title">` | rename `.ws-title` or change it from a `<span>` |
 | `_CONVO_RE` | `<div class="convo-scroll">` … `<div class="convo-input">` | rename either class, or reorder them |
 | `_TAB_DOC_RE` | `<div id="tab-doc">` … `<div id="tab-chart"` | rename either `id`, or reorder the tab panes |
@@ -57,8 +57,18 @@ re-wrapped. This is why `<!-- SETTINGS VIEW -->` sits *above* `<!-- OUTCOMES VIE
 rather than at the end where it reads more naturally. DOM order is cosmetic here:
 `.view` is `position:absolute` and toggled by `showView()`.
 
-`_SETTINGS_SECTIONS_RE` is sentinel-anchored precisely to avoid joining this club.
-Prefer sentinels over `</div>` counting for anything new.
+`_SETTINGS_SECTIONS_RE` and `_CARDS_REGION_RE` are sentinel-anchored precisely to avoid
+joining this club. Prefer sentinels over `</div>` counting for anything new.
+
+`_CARDS_REGION_RE` earned its way out the hard way (#107). It used to run from
+`<div class="quick-add">` to `</div></div><!-- WORKSPACE VIEW -->`, so its middle group
+was *everything in between* — and because `#view-workspaces` was later added between the
+Inbox and that comment, rendering the Inbox quietly deleted the entire Workspaces list
+view from the page. Nothing was renamed, nothing was re-wrapped, no test failed, and the
+only reason it never surfaced is that `/workspaces` is a separate render off a clean
+template. That is exactly the failure mode this document warns about, and it shipped
+anyway. `tests/test_inbox_two_pane.py::test_splice_stays_inside_the_sentinels` now
+pins it.
 
 ### `sum-*` ids required by the summary strip
 
@@ -72,7 +82,8 @@ These HTML comments are **structural markers, not documentation.** Do not tidy t
 
 | Comment | Status |
 |---|---|
-| `<!-- WORKSPACE VIEW -->` | **load-bearing** — `_CARDS_REGION_RE` matches it literally |
+| `<!-- INBOX CARDS -->` / `<!-- /INBOX CARDS -->` | **load-bearing** — `_CARDS_REGION_RE` |
+| `<!-- WORKSPACE VIEW -->` | no longer matched (was `_CARDS_REGION_RE`, until #107); keep for symmetry |
 | `<!-- LOGO MARK -->` | **load-bearing** — `_load_template()` replaces it with the mark from `logo.py`. Delete it and the logo silently disappears. |
 | `<!-- INBOX VIEW -->` | not currently matched; keep for symmetry |
 | `<!-- OUTCOMES VIEW -->` | not currently matched; keep for symmetry |
@@ -81,8 +92,8 @@ These HTML comments are **structural markers, not documentation.** Do not tidy t
 | `<!-- LEFT RAIL -->` | not currently matched; keep for symmetry |
 | `<!-- MAIN -->` | not currently matched; keep for symmetry |
 
-Only the first is matched today, but a reader cannot tell which by looking. Treat all
-five as load-bearing.
+A reader cannot tell which of these are matched by looking, and the set changes.
+Treat all of them as load-bearing.
 
 ---
 
@@ -97,6 +108,9 @@ real backend calls. They bind to:
 | `.nav-item[data-nav="outcomes"]` | routes to `/outcomes` |
 | `.nav-item[data-nav="workspace"]` | routes to `/workspaces` |
 | `.filter-pill` | Inbox filtering |
+| `#inbox-detail` | Inbox detail pane; `pmqsSelect()` swaps its `innerHTML` (#107) |
+| `#pmqs-question-detail` | JSON blob of pre-rendered detail HTML, keyed by question id (#107) |
+| `.card[data-qid]` | Inbox selection; `data-qid` is the key into that blob |
 | `#quick-add-input` | quick-add question |
 | `#chat-input` | war-room message |
 | `#identity-block` | Account Settings link. Always `/settings`, never prefixed — account settings scopes to no product |
@@ -114,8 +128,10 @@ each, or real data renders unstyled — a failure that looks like a design bug, 
 wiring bug:
 
 ```
-card  card-main  card-title  card-meta  card-actions  card-age
+card  card-main  card-title  card-meta  card-actions  card-age  selected
 icon-btn  primary  pill  quick-add
+inbox-list  inbox-detail  detail-empty  detail-title  detail-section  detail-label
+detail-body  detail-actions  d-btn  source-card  source-ref  source-meta
 convo-scroll  convo-input  msg  msg-label  msg-body  sys-bubble
 ws-title  session-stats
 doc  doc-sub  doc-section  doc-label  doc-text  doc-grid  doc-box

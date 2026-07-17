@@ -13,7 +13,9 @@ See web/TEMPLATE-CONTRACT.md.
 from __future__ import annotations
 
 import html
+import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -190,8 +192,12 @@ def _load_template(template_path=None) -> str:
     return src.replace(_LOGO_MARK_SENTINEL, logo.mark_svg(title=None), 1)
 
 
+# Sentinel-anchored (#107). The previous version counted literal </div>s between the
+# quick-add block and <!-- WORKSPACE VIEW -->, which meant group 2 silently swallowed
+# every view in between -- by the time #view-workspaces landed it was eating that too.
+# TEMPLATE-CONTRACT §6/§7: prefer sentinels over </div> counting.
 _CARDS_REGION_RE = re.compile(
-    r'(<div class="quick-add">.*?</div>\s*)(.*?)(\s*</div>\s*</div>\s*<!-- WORKSPACE VIEW -->)',
+    r"(<!-- INBOX CARDS -->)(.*?)(<!-- /INBOX CARDS -->)",
     re.DOTALL,
 )
 
@@ -199,6 +205,99 @@ _CARDS_REGION_RE = re.compile(
 def _pill(text: str, cls: str = "") -> str:
     c = f"pill {cls}".strip()
     return f'<span class="{c}">{html.escape(text)}</span>'
+
+
+def _rel_age(created_at: str | None) -> str:
+    """'2h' / '3d' / '5w' from an ISO timestamp. Empty string if unparseable."""
+    if not created_at:
+        return ""
+    try:
+        ts = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    secs = (datetime.now(timezone.utc) - ts).total_seconds()
+    for div, suffix in ((60, "s"), (60, "m"), (24, "h"), (7, "d")):
+        if secs < div:
+            return f"{int(secs)}{suffix}"
+        secs /= div
+    return f"{int(secs)}w"
+
+
+def source_card_html(e: dict) -> str:
+    """One evidence object as a source card. Shared by the Inbox detail pane and, per
+    #111, the Evidence tab -- which is why the markup stays generic."""
+    if e.get("type") == "news":
+        src = html.escape(e.get("source", "") or "source")
+        title = html.escape(e.get("title", "") or "")
+        date = html.escape(e.get("date", "") or "")
+        url = html.escape(e.get("url", "") or "")
+        ref = f'\u201c{title}\u201d' if title else "News item"
+        meta = f"reportedly, via {src}" + (f" \u00b7 {date}" if date else "")
+    else:
+        ref = html.escape(f"{e.get('type', 'ref')} {e.get('ref', '')}".strip()) or "Reference"
+        url = html.escape(e.get("url", "") or "")
+        meta = ""
+    link = f'<a href="{url}">{url}</a>' if url else ""
+    sub = " ".join(x for x in (meta, link) if x)
+    return (
+        f'<div class="source-card"><div class="source-ref">{ref}</div>'
+        f'<div class="source-meta">{sub}</div></div>'
+    )
+
+
+def question_detail_html(q: Any) -> str:
+    """The Inbox detail pane for one question. Built server-side for every question in
+    the list and shipped as JSON; selection swaps it in client-side (no per-selection
+    round trip). Server-built so escaping stays in one place and #111 has a seam."""
+    qid = html.escape(str(getattr(q, "id", "") or ""))
+    title = html.escape(getattr(q, "title", "") or "")
+
+    ev = getattr(q, "evidence_list", None)
+    if ev is None:
+        ev = getattr(q, "evidence", []) or []
+
+    lens_tags = getattr(q, "lens_tags_list", None)
+    if lens_tags is None:
+        lens_tags = getattr(q, "lens_tags", []) or []
+    pills = [_pill(t.replace("_", " ")) for t in lens_tags]
+    age = _rel_age(getattr(q, "created_at", None))
+    if age:
+        pills.append(f'<span class="card-age">{html.escape(age)}</span>')
+
+    if ev:
+        source = source_card_html(ev[0])
+        # Splice the lens pills + age into the shared card's meta row.
+        source = source.replace(
+            '<div class="source-meta">', f'<div class="source-meta">{" ".join(pills)} ', 1
+        )
+    else:
+        source = (
+            '<div class="source-card"><div class="source-ref">No evidence bound yet.</div>'
+            f'<div class="source-meta">{" ".join(pills)}</div></div>'
+        )
+
+    desc = getattr(q, "description", None)
+    context = (
+        f'<div class="detail-body">{html.escape(str(desc))}</div>'
+        if desc else
+        '<div class="detail-body" style="color:var(--text-muted)">No description recorded '
+        'for this question.</div>'
+    )
+
+    return (
+        f'<div class="detail-title">{title}</div>'
+        + source
+        + '<div class="detail-section"><div class="detail-label">Context</div>'
+        + context
+        + "</div>"
+        + '<div class="detail-actions">'
+        + f'<button class="d-btn primary" onclick="pmqsOpenWorkspace(\'{qid}\')">Open workspace</button>'
+        + f'<button class="d-btn" onclick="pmqsSetStatus(\'{qid}\',\'saved\')">Save</button>'
+        + f'<button class="d-btn" onclick="pmqsSetStatus(\'{qid}\',\'dismissed\')">Dismiss</button>'
+        + "</div>"
+    )
 
 
 def question_card_html(q: Any) -> str:
@@ -240,8 +339,9 @@ def question_card_html(q: Any) -> str:
 
     qid = html.escape(str(getattr(q, "id", "") or ""))
     saved_style = ' style="margin-top:22px;"' if variant == "saved" else ""
-    # data-qid + click opens the real war-room for this question (see _LIVE_JS).
-    return f"""        <div class="card {variant}"{saved_style} data-qid="{qid}" onclick="pmqsOpenWorkspace('{qid}')">
+    # data-qid + click SELECTS this question and swaps the detail pane (#107). The ⚔
+    # icon-btn below still navigates straight to the war-room, so the old path stays.
+    return f"""        <div class="card {variant}"{saved_style} data-qid="{qid}" onclick="pmqsSelect('{qid}')">
           <div class="card-main">
             <div class="card-title">{title}</div>
             <div class="card-meta">
@@ -309,11 +409,47 @@ def render_inbox(questions: list[Any], template_path: Path | None = None,
     new_src, hn = re.subn(r'<div class="inbox-header">Inbox</div>', header_html, new_src)
     # (hn==0 tolerated: header markup changed; the empty-state button still works.)
 
+    # #107: the detail pane is hydrated client-side from a JSON blob carrying every
+    # question's pre-rendered detail HTML. Rendered once, server-side, for the whole list
+    # -- selection is a swap, not a round trip. "</" is escaped so a question title can
+    # never close the script tag early.
+    payload = json.dumps(
+        {str(getattr(q, "id", "") or ""): question_detail_html(q) for q in questions}
+    ).replace("</", "<\\/")
+    detail_json = f'<script type="application/json" id="pmqs-question-detail">{payload}</script>'
+
     # Wire quick-add + card clicks to real endpoints (override template demo JS).
     # Also force the Inbox view active on load so no war-room/workspace header bleeds in.
     _prefix = f"/w/{workspace_slug}" if workspace_slug else ""
-    inbox_js = _live_js_common(_prefix) + f"""
+    inbox_js = detail_json + _live_js_common(_prefix) + f"""
 <script>
+// #107: two-pane Inbox. Selecting a card swaps the detail pane; no navigation.
+var pmqsDetail = {{}};
+try {{
+  var _blob = document.getElementById('pmqs-question-detail');
+  if (_blob) pmqsDetail = JSON.parse(_blob.textContent);
+}} catch (e) {{ pmqsDetail = {{}}; }}
+
+function pmqsSelect(qid){{
+  var pane = document.getElementById('inbox-detail');
+  if (!pane) return;
+  document.querySelectorAll('#view-inbox .card').forEach(function(c){{
+    c.classList.toggle('selected', c.getAttribute('data-qid') === qid);
+  }});
+  pane.innerHTML = pmqsDetail[qid] ||
+    '<div class="detail-empty">This question is no longer in the list.</div>';
+}}
+
+document.addEventListener('DOMContentLoaded', function(){{
+  var pane = document.getElementById('inbox-detail');
+  var first = document.querySelector('#view-inbox .card[data-qid]');
+  if (first && first.getAttribute('data-qid')) {{
+    pmqsSelect(first.getAttribute('data-qid'));   // first card selected on load
+  }} else if (pane) {{
+    pane.innerHTML = '<div class="detail-empty">Nothing to triage. ' +
+      'Pull questions from the repo, or add your own.</div>';
+  }}
+}});
 // Override quick-add to create a real PM question server-side.
 function addQuestion(){{
   var input = document.getElementById('quick-add-input');
