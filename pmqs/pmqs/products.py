@@ -111,6 +111,36 @@ def set_news_config(
     return get_news_config(db, product)
 
 
+def weights_for(db: OrmSession, product_id: str | None) -> dict[str, float]:
+    """This Product's lens weights, merged OVER the defaults (#97).
+
+    The merge is the point: a product that tunes one lens must not zero the other seven.
+    `Product.lens_weights` is a partial override, not a replacement -- so a weights dict
+    saved before a ninth lens exists keeps scoring that lens at its default rather than
+    at 0.5's fallback.
+
+    product_id=None, an unknown id, or an unset column all give the defaults, which is
+    exactly the behaviour every call site had before this was wired.
+    """
+    from pmqs import config
+
+    if product_id is None:
+        return dict(config.LENS_WEIGHTS)
+    product = get_product(db, product_id)
+    if product is None:
+        return dict(config.LENS_WEIGHTS)
+    stored = product.lens_weights_dict
+    if not stored:
+        return dict(config.LENS_WEIGHTS)
+    merged = dict(config.LENS_WEIGHTS)
+    for lens, weight in stored.items():
+        try:
+            merged[lens] = float(weight)
+        except (TypeError, ValueError):
+            continue  # a junk value falls back to the default rather than crashing scoring
+    return merged
+
+
 def get_product(db: OrmSession, product_id: str) -> Product | None:
     return db.get(Product, product_id)
 

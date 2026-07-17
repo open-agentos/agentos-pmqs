@@ -16,7 +16,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import context_feed, llm, members, repository, scoring, settings
+from pmqs import context_feed, llm, members, products, repository, scoring, settings
 from pmqs.config import LENS_WEIGHTS
 from pmqs.dedup import dedup, judge_prior_awareness, raisable
 
@@ -127,7 +127,9 @@ def run_session_lenses(db: OrmSession, session: Any) -> list:
             status="proposed",
             origin_session_id=session.id,  # B6: scope proposed questions to this session
         )
-        score, dims = scoring.score_question(q)
+        score, dims = scoring.score_question(
+            q, products.weights_for(db, session.product_id)
+        )
         repository.set_question_score(db, q.id, score, dims)
         questions.append(q)
     return questions

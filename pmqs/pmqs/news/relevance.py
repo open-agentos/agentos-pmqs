@@ -158,7 +158,7 @@ def _promote_for_product(db: OrmSession, product, cfg: dict[str, Any]) -> list:
             status="proposed",
             product_id=product.id,
         )
-        score, dims = scoring.score_question(q)
+        score, dims = scoring.score_question(q, products.weights_for(db, product.id))
         repository.set_question_score(db, q.id, score, dims)
         questions.append(q)
 

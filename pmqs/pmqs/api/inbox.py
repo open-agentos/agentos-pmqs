@@ -102,7 +102,7 @@ def quick_add(
     q = repository.create_question(
         db, title=title, source="pm", lens_tags=lens_tags, status="proposed", product_id=product_id
     )
-    score, dims = scoring.score_question(q)
+    score, dims = scoring.score_question(q, products.weights_for(db, product_id))
     repository.set_question_score(db, q.id, score, dims)
     return RedirectResponse(url=f"{_base(workspace_slug)}/", status_code=303)
 
