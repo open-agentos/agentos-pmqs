@@ -529,6 +529,27 @@ _TAB_PROP_RE = re.compile(
 _STATS_RE = re.compile(r'(<span class="session-stats">).*?(</span>)', re.DOTALL)
 
 
+def _tab_label_re(tab: str) -> re.Pattern:
+    """#108: anchor on the data-tab value (already contract, §3) rather than on nesting,
+    so the count can go in the label without touching the artifact pane's structure."""
+    return re.compile(r'(data-tab="%s"[^>]*>)([^<]*)(</div>)' % re.escape(tab))
+
+
+def _apply_tab_counts(src: str, counts: dict[str, int]) -> str:
+    """Put the item count in the tab label -- Evidence (4), Proposed (2). Renders (0)
+    when empty rather than hiding, so an empty pane is a fact rather than an absence.
+    Only the countable tabs get one: 'Position document' and 'Impacts' are single
+    artifacts, not lists."""
+    for tab, n in counts.items():
+        def _sub(m: re.Match) -> str:
+            label = re.sub(r"\s*\(\d+\)$", "", m.group(2).strip())
+            return f"{m.group(1)}{label} ({n}){m.group(3)}"
+        src, hit = _tab_label_re(tab).subn(_sub, src, count=1)
+        if not hit:
+            raise RuntimeError(f"Could not locate the '{tab}' artifact tab in app template")
+    return src
+
+
 def _msg_html(m: Any) -> str:
     role = getattr(m, "role", "system")
     cls = "pm" if role == "pm" else "system"
@@ -691,6 +712,9 @@ def render_workspace(
     src = _splice3(_TAB_DOC_RE, _position_doc_html(position_doc), src, "tab-doc")
     src = _splice3(_TAB_EVID_RE, _evidence_html(evidence), src, "tab-evidence")
     src = _splice3(_TAB_PROP_RE, _proposed_html(proposed, session.id), src, "tab-proposed")
+    # #108: counts come from the same lists spliced into the panes above, so the label
+    # can never disagree with the pane's contents.
+    src = _apply_tab_counts(src, {"evidence": len(evidence), "proposed": len(proposed)})
 
     src, n = _STATS_RE.subn(
         lambda m: f"{m.group(1)}<span>{n_exchanges}</span> exchanges{m.group(2)}", src

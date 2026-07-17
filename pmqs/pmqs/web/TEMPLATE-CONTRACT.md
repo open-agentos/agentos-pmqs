@@ -39,6 +39,7 @@ in groups 1 and 3 stops matching, the splice fails.
 | `_TAB_EVID_RE` | `<div id="tab-evidence">` … `<div id="tab-proposed"` | as above |
 | `_TAB_PROP_RE` | `<div id="tab-proposed">` … 4 closing `</div>`s | as above, **or change nesting depth after the last tab** |
 | `_STATS_RE` | `<span class="session-stats">` | rename `.session-stats` or change its tag |
+| `_tab_label_re(t)` | `data-tab="{t}"` … `</div>` | change a tab from a `<div>`, or put markup inside a tab label (#108 writes the item count into it as plain text) |
 | `_OUTCOMES_LIST_RE` | `<div id="outcomes-list">` … 5 closing `</div>`s | rename the `id`, **or change nesting depth after the ledger** |
 | `_SUM_RE_TMPL` | `<div class="summary-num" id="sum-{type}">` | rename `.summary-num`, or change the `sum-*` id scheme |
 | `_SETTINGS_SECTIONS_RE` | `<!-- SETTINGS SECTIONS -->` … `<!-- /SETTINGS SECTIONS -->` | delete either sentinel |
