@@ -119,11 +119,15 @@ def save_advanced_settings(
 
 
 @router.get("/w/{workspace_slug}/settings", response_class=HTMLResponse)
-def product_settings_page(workspace_slug: str, db: OrmSession = Depends(get_session)):
+def product_settings_page(workspace_slug: str, product_error: str | None = None,
+                          added: str | None = None, db: OrmSession = Depends(get_session)):
     product = products.get_product_by_slug(db, workspace_slug)
     if product is None:
         return _not_found(workspace_slug)
-    return HTMLResponse(render_product_settings(db, product, workspace_slug=workspace_slug))
+    return HTMLResponse(render_product_settings(
+        db, product, workspace_slug=workspace_slug,
+        flash=product_error or ("added" if added else None),
+    ))
 
 
 @router.post("/w/{workspace_slug}/settings")
