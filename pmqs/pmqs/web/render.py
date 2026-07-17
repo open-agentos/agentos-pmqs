@@ -838,7 +838,7 @@ def _set_checkbox(label: str, name: str, checked: bool) -> str:
             f'{html.escape(label)}</label>')
 
 
-def _news_status_html(db: Any, cfg: dict) -> str:
+def _news_status_html(db: Any, cfg: dict, product: Any) -> str:
     """What the PM needs to know before wondering why the inbox is empty.
 
     The key is reported as a boolean and nothing more. Never render it, never render a
@@ -847,8 +847,8 @@ def _news_status_html(db: Any, cfg: dict) -> str:
     from pmqs import repository, settings as settings_mod
 
     key_ok = bool(settings_mod.resolve_brave_key(db))
-    queries = settings_mod.effective_news_queries(db, cfg)
-    stored = len(repository.list_news_items(db))
+    queries = settings_mod.effective_news_queries(db, product)
+    stored = len(repository.list_news_items(db, product_id=product.id) if product else [])
     last_run = cfg.get("last_run") or ""
     rows = [
         f'Brave key: <b>{"resolves" if key_ok else "not found"}</b>',
@@ -864,13 +864,15 @@ def _news_status_html(db: Any, cfg: dict) -> str:
     return f'<div class="set-status">{"<br>".join(rows)}</div>{preview}'
 
 
-def _settings_sections(db: Any, prefix: str = "") -> str:
+def _settings_sections(db: Any, prefix: str = "", product: Any = None) -> str:
     """Build the Settings sections. The API key is NEVER echoed back: shown masked."""
+    from pmqs import products as products_repo
     from pmqs import settings as settings_mod
 
     cfg = settings_mod.get_llm(db)
     key_display = "•••••••• (stored)" if cfg.get("api_key_raw") else html.escape(cfg.get("api_key_ref") or "")
     news = settings_mod.get_news_config(db)
+    product_news = products_repo.get_news_config(db, product)
     n_key_display = "•••••••• (stored)" if news.get("api_key_raw") else html.escape(news.get("api_key_ref") or "")
 
     from pmqs import members as members_repo
@@ -878,6 +880,8 @@ def _settings_sections(db: Any, prefix: str = "") -> str:
 
     member = db.get(Member, members_repo.current_member_id(db))
     display_name = html.escape(member.display_name if member else "")
+
+    product_label = products_repo.product_display_name(db, product) if product else "no product yet"
 
     you = f"""<form method="post" action="{prefix}/settings">
 <div class="set-section"><h2>You</h2>
@@ -894,22 +898,22 @@ def _settings_sections(db: Any, prefix: str = "") -> str:
 <button class="set-btn" type="submit">Save</button>
 </div></form>"""
 
-    wl = news.get("watchlist") or {}
+    wl = product_news.get("watchlist") or {}
 
     def _wl(field: str) -> str:
         return html.escape("\n".join(wl.get(field) or []))
 
     news_section = f"""<form method="post" action="{prefix}/settings/news">
 <div class="set-section"><h2>News</h2>
-<div class="set-scope">Applies to all products — per-product watchlists are a later change (#78).</div>
+<div class="set-scope">Your Brave key and throttles. Applies to every product.</div>
 {_set_checkbox("Ingest news", "news_enabled", news.get("enabled", True))}
 {_set_field("Brave API key env var", "news_api_key_ref", n_key_display, placeholder="BRAVE_API_KEY",
             hint="Stored as an env-var reference or inline (masked, never shown). Never committed to the repo.")}
 {_set_field("Brave API key (optional, inline — stored, never shown)", "news_api_key_raw", "", type_="password",
             placeholder="leave blank to keep current")}
 </div>
-<div class="set-section"><h2>Watchlist</h2>
-<div class="set-scope">One per line. Everything except sources becomes a search; sources restrict all of them.</div>
+<div class="set-section"><h2>Watchlist — {html.escape(product_label)}</h2>
+<div class="set-scope">This product only. One per line; everything except sources becomes a search, sources restrict all of them.</div>
 {_set_field("Industry", "wl_industry", _wl("industry"), textarea=True, placeholder="agent orchestration")}
 {_set_field("Keywords", "wl_keywords", _wl("keywords"), textarea=True, placeholder="AI product management")}
 {_set_field("Companies", "wl_companies", _wl("companies"), textarea=True, placeholder="Anthropic")}
@@ -917,14 +921,14 @@ def _settings_sections(db: Any, prefix: str = "") -> str:
 {_set_field("Media sources", "wl_sources", _wl("sources"), textarea=True, placeholder="techcrunch.com",
             hint="Domains. Folded into every search as one site: group, not searched on their own.")}
 {_set_field("Raw queries (advanced, one per line)", "news_queries",
-            html.escape("\n".join(news.get("queries", []))), textarea=True,
+            html.escape("\n".join(product_news.get("queries", []))), textarea=True,
             hint="Brave query syntax, passed through untouched and appended to the composed ones.")}
-{_news_status_html(db, news)}
+{_news_status_html(db, news, product)}
 </div>
 <div class="set-section"><h2>Relevance</h2>
-<div class="set-scope">What gets fetched, and what survives the relevance pass into your inbox.</div>
+<div class="set-scope">The profile is this product's; the thresholds are account-wide.</div>
 {_set_field("Product profile (what the relevance pass judges against)", "product_profile",
-            html.escape(news.get("product_profile", "")), textarea=True,
+            html.escape(product_news.get("product_profile", "")), textarea=True,
             placeholder="What the product is, who competes, what the PM cares about…")}
 <div class="set-row">
 <div>{_set_select("Freshness", "freshness", str(news.get("freshness", "pw")), settings_mod.FRESHNESS_CHOICES)}</div>
@@ -968,7 +972,17 @@ def render_settings(db: Any, template_path: Path | None = None, *,
     src = _load_template(template_path)
     src = _apply_rail(src, db, workspace_slug)
     _prefix = f"/w/{workspace_slug}" if workspace_slug else ""
-    sections = _settings_sections(db, _prefix)
+    # Same rule as the switcher: an explicit slug wins, else the account's default
+    # product. The news watchlist shown is THIS product's (#96).
+    from pmqs import products as products_repo
+
+    all_products = products_repo.list_products(db)
+    product = None
+    if workspace_slug is not None:
+        product = next((p for p in all_products if p.slug == workspace_slug), None)
+    if product is None and all_products:
+        product = all_products[0]
+    sections = _settings_sections(db, _prefix, product)
     new_src, n = _SETTINGS_SECTIONS_RE.subn(lambda m: f"{m.group(1)}\n{sections}\n{m.group(3)}", src)
     if n == 0:
         raise RuntimeError("Could not locate Settings sections region in app template")

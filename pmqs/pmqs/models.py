@@ -99,11 +99,15 @@ class NewsItem(Base):
     from `questions` — raw material is not evidence until promoted to a Question. Must
     never be written to GitHub.
 
-    KNOWN GAP from the #52 workspace-scoping pass: `url` is still globally unique, not
-    (product_id, url). Harmless while news ingestion (Phase 4) isn't live, but once
-    it is, two products that both watch the same story will dedupe against each
-    other incorrectly. Needs a table rebuild to fix (SQLite can't ALTER a UNIQUE
-    constraint in place) -- left for whoever picks Phase 4 back up.
+    `url` is globally unique rather than (product_id, url), so two products watching the
+    same story dedupe against each other -- the second one silently doesn't see it.
+
+    This is a DECISION, not an oversight (product owner, #96): duplicate stories across
+    products are acceptable at MVP. SQLite can't ALTER a UNIQUE constraint in place, so
+    the fix is a full table rebuild + copy, and that is not worth paying for at one user
+    with two products. It becomes worth paying for when products share a news space and
+    a missed story is a missed decision -- i.e. when there are peers, or many products
+    per account. Revisit then; don't let it block Phase 4.
     """
 
     __tablename__ = "news_items"
@@ -152,6 +156,7 @@ class Product(Base):
     slug: Mapped[str | None] = mapped_column(Text)  # url-safe, unique; folded from workspace.slug
     nickname: Mapped[str | None] = mapped_column(Text)  # optional display override; folded from workspace.nickname
     lens_weights: Mapped[str | None] = mapped_column(Text)  # JSON object, None = use config defaults
+    news_config: Mapped[str | None] = mapped_column(Text)  # JSON: watchlist/queries/product_profile (#96)
     archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
 
@@ -162,6 +167,10 @@ class Product(Base):
     @property
     def lens_weights_dict(self) -> dict[str, Any]:
         return json.loads(self.lens_weights or "{}")
+
+    @property
+    def news_config_dict(self) -> dict[str, Any]:
+        return json.loads(self.news_config or "{}")
 
 
 class Member(Base):

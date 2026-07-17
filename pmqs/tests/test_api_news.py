@@ -11,7 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 from pmqs.api.app import app
 from pmqs.db import Base, get_session
-from pmqs import repository, settings
+from pmqs import products, repository, settings
 
 
 @pytest.fixture
@@ -40,6 +40,12 @@ def client():
 
 
 def test_save_news_settings(client):
+    # In a real deployment init_db always backfills a default product; the test DBs
+    # skip the backfills, so create one -- there's nothing to hang a watchlist on
+    # otherwise (#96).
+    s0 = client._session_factory()
+    products.get_or_create_default_product(s0)
+    s0.close()
     r = client.post("/settings/news", data={
         "news_api_key_ref": "BRAVE_API_KEY",
         "news_queries": "agent orchestration\nAI PM tools",
@@ -48,9 +54,10 @@ def test_save_news_settings(client):
     }, follow_redirects=False)
     assert r.status_code == 303
     db = client._session_factory()
-    cfg = settings.get_news_config(db)
-    assert cfg["queries"] == ["agent orchestration", "AI PM tools"]
-    assert cfg["min_relevance"] == 0.6
+    # Split as of #96: the queries are the Product's, the threshold is the account's.
+    assert products.get_news_config(db, products.list_products(db)[0])["queries"] == [
+        "agent orchestration", "AI PM tools"]
+    assert settings.get_news_config(db)["min_relevance"] == 0.6
     db.close()
 
 

@@ -37,23 +37,20 @@ _NEWS_KEY = "news"
 # Phase 4: Brave Search news config. api_key handled like the LLM key (ref preferred,
 # raw masked and never rendered). Ingestion is manual-only for now.
 #
-# Account-wide, NOT per-product (product owner's call, #92). Product.lens_weights and
-# the build-spec both say the watchlist belongs on Product, but the relevance pass is
-# still product-blind (#78) -- scoping the settings while the pipeline ignores the scope
-# would build a UI that lies. Both move together when #78 lands.
+# ACCOUNT-scoped only, as of #96. The watchlist and the product_profile moved onto
+# Product (products.get_news_config) -- they're what make a product a product. What's
+# left here is yours, not the product's: your key, and throttles that have no reason to
+# differ per product.
 _NEWS_DEFAULTS: dict[str, Any] = {
     "api_key_ref": "BRAVE_API_KEY",   # env var name; not the key itself
     "api_key_raw": "",                 # optional inline key (kept out of renders)
     "enabled": True,                    # off => ingest() is a no-op, key or no key
-    "watchlist": {},                    # {industry|keywords|companies|products|sources: [str]}
-    "queries": [],                      # raw Brave query strings; the escape hatch
-    "product_profile": "",              # free-text: what the product is / competitors / concerns
-    "count": 10,                        # results requested per query (was hardcoded in fetch.py)
+    "count": 10,                        # results requested per query
     "freshness": "pw",                  # Brave freshness window: pd | pw | pm | py | "" = any
-    "top_n": 3,                         # max news questions promoted per ingestion run
+    "top_n": 3,                         # max news questions promoted per product per run
     "min_relevance": 0.5,               # relevance threshold [0..1]; below → not promoted
     "last_run": "",                     # ISO ts of the last ingest; "" = never run
-    "last_promoted": 0,                 # questions promoted by that run
+    "last_promoted": 0,                 # questions promoted by that run, across all products
 }
 
 FRESHNESS_CHOICES = (
@@ -121,14 +118,10 @@ def set_context_budget(db: OrmSession, char_budget: int) -> None:
 
 
 def get_news_config(db: OrmSession) -> dict[str, Any]:
-    """Brave news config merged over defaults. api_key_raw is present but must NEVER be
-    rendered into HTML (callers/render mask it)."""
+    """Account-wide news settings, merged over defaults. The watchlist and profile are
+    NOT here -- see products.get_news_config (#96)."""
     stored = _get(db, _NEWS_KEY) or {}
-    merged = dict(_NEWS_DEFAULTS)
-    for k, v in stored.items():
-        if v not in (None, ""):
-            merged[k] = v
-    # coerce numeric types defensively
+    merged = {**_NEWS_DEFAULTS, **stored}
     for key in ("top_n", "count", "last_promoted"):
         try:
             merged[key] = int(merged.get(key) if merged.get(key) is not None else _NEWS_DEFAULTS[key])
@@ -138,20 +131,18 @@ def get_news_config(db: OrmSession) -> dict[str, Any]:
         merged["min_relevance"] = float(merged.get("min_relevance") or _NEWS_DEFAULTS["min_relevance"])
     except (TypeError, ValueError):
         merged["min_relevance"] = _NEWS_DEFAULTS["min_relevance"]
-    if not isinstance(merged.get("queries"), list):
-        merged["queries"] = []
-    if not isinstance(merged.get("watchlist"), dict):
-        merged["watchlist"] = {}
     merged["enabled"] = bool(merged.get("enabled", True))
-    return merged
+    return {k: v for k, v in merged.items() if k in _NEWS_DEFAULTS}
 
 
-def effective_news_queries(db: OrmSession, config: dict[str, Any] | None = None) -> list[str]:
-    """What ingest() will actually search: the watchlist composed, then the raw escape
-    hatch appended. One implementation, so the Settings preview can't drift from the run."""
+def effective_news_queries(db: OrmSession, product) -> list[str]:
+    """What ingest() will actually search FOR THIS PRODUCT: its watchlist composed, then
+    its raw escape hatch appended. One implementation, so the Settings preview can't
+    drift from the run."""
+    from pmqs import products as products_repo
     from pmqs.news.watchlist import build_queries
 
-    cfg = config or get_news_config(db)
+    cfg = products_repo.get_news_config(db, product)
     return build_queries(cfg.get("watchlist") or {}, cfg.get("queries") or [])
 
 
@@ -172,24 +163,18 @@ def set_news_config(
     api_key_ref: str = "BRAVE_API_KEY",
     api_key_raw: str = "",
     enabled: bool = True,
-    watchlist: dict[str, list[str]] | None = None,
-    queries: list[str] | None = None,
-    product_profile: str = "",
     count: int = 10,
     freshness: str = "pw",
     top_n: int = 3,
     min_relevance: float = 0.5,
 ) -> dict[str, Any]:
-    """Preserves last_run/last_promoted: saving the watchlist is not a run, and blanking
-    the stamp would make the status line lie about whether the button ever worked."""
+    """Preserves last_run/last_promoted: saving settings is not a run, and blanking the
+    stamp would make the status line lie about whether the button ever worked."""
     current = _get(db, _NEWS_KEY) or {}
     value = {
         "api_key_ref": api_key_ref,
         "api_key_raw": api_key_raw,
         "enabled": bool(enabled),
-        "watchlist": watchlist or {},
-        "queries": queries or [],
-        "product_profile": product_profile,
         "count": int(count),
         "freshness": freshness,
         "top_n": int(top_n),

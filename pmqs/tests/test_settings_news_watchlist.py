@@ -13,7 +13,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from pmqs import settings
+from pmqs import products, settings
 from pmqs.api.app import app
 from pmqs.db import Base, get_session
 from pmqs.news import fetch
@@ -125,19 +125,29 @@ def test_news_config_defaults_are_additive_and_safe(db):
     assert cfg["enabled"] is True
     assert cfg["count"] == 10
     assert cfg["freshness"] == "pw"
-    assert cfg["watchlist"] == {}
     assert cfg["last_run"] == ""
 
 
 def test_effective_queries_compose_watchlist_plus_raw(db):
-    settings.set_news_config(db, watchlist={"keywords": ["agents"]}, queries=["raw one"])
-    assert settings.effective_news_queries(db) == ["agents", "raw one"]
+    p = products.get_or_create_default_product(db)
+    products.set_news_config(db, p, watchlist={"keywords": ["agents"]}, queries=["raw one"])
+    assert settings.effective_news_queries(db, p) == ["agents", "raw one"]
+
+
+def test_effective_queries_are_per_product(db):
+    """The point of #96: two products, two watchlists, two different runs."""
+    a = products.get_or_create_product(db, org="o", repo="a")
+    b = products.get_or_create_product(db, org="o", repo="b")
+    products.set_news_config(db, a, watchlist={"companies": ["Anthropic"]})
+    products.set_news_config(db, b, watchlist={"companies": ["Figma"]})
+    assert settings.effective_news_queries(db, a) == ["Anthropic"]
+    assert settings.effective_news_queries(db, b) == ["Figma"]
 
 
 def test_saving_the_watchlist_does_not_blank_the_last_run_stamp(db):
     settings.record_news_run(db, promoted=4)
     stamped = settings.get_news_config(db)["last_run"]
-    settings.set_news_config(db, watchlist={"keywords": ["agents"]})
+    settings.set_news_config(db, count=12)
     cfg = settings.get_news_config(db)
     assert cfg["last_run"] == stamped
     assert cfg["last_promoted"] == 4
@@ -155,8 +165,9 @@ def test_record_news_run_stamps(db):
 def test_disabled_means_no_fetch(db, monkeypatch):
     called = []
     monkeypatch.setattr(fetch, "_fetch_query", lambda *a, **k: called.append(1) or [])
-    settings.set_news_config(db, enabled=False, watchlist={"keywords": ["agents"]},
-                            api_key_raw="k")
+    settings.set_news_config(db, enabled=False, api_key_raw="k")
+    products.set_news_config(db, products.get_or_create_default_product(db),
+                             watchlist={"keywords": ["agents"]})
     assert fetch.ingest(db) == []
     assert called == []
 
@@ -169,8 +180,9 @@ def test_count_and_freshness_reach_the_fetcher(db, monkeypatch):
         return []
 
     monkeypatch.setattr(fetch, "_fetch_query", _spy)
-    settings.set_news_config(db, watchlist={"keywords": ["agents"]}, api_key_raw="k",
-                             count=25, freshness="pd")
+    settings.set_news_config(db, api_key_raw="k", count=25, freshness="pd")
+    products.set_news_config(db, products.get_or_create_default_product(db),
+                             watchlist={"keywords": ["agents"]})
     fetch.ingest(db)
     assert seen == {"query": "agents", "count": 25, "freshness": "pd"}
 
@@ -178,7 +190,9 @@ def test_count_and_freshness_reach_the_fetcher(db, monkeypatch):
 def test_ingest_searches_the_watchlist_not_just_the_raw_queries(db, monkeypatch):
     seen = []
     monkeypatch.setattr(fetch, "_fetch_query", lambda q, k, **kw: seen.append(q) or [])
-    settings.set_news_config(db, watchlist={"companies": ["Anthropic"]}, api_key_raw="k")
+    settings.set_news_config(db, api_key_raw="k")
+    products.set_news_config(db, products.get_or_create_default_product(db),
+                             watchlist={"companies": ["Anthropic"]})
     fetch.ingest(db)
     assert seen == ["Anthropic"]
 
@@ -196,7 +210,8 @@ def test_watchlist_fields_render(db):
 
 def test_status_line_reports_the_key_as_a_boolean_only(db, monkeypatch):
     monkeypatch.delenv("BRAVE_API_KEY", raising=False)
-    settings.set_news_config(db, api_key_raw="brave-secret-value",
+    settings.set_news_config(db, api_key_raw="brave-secret-value")
+    products.set_news_config(db, products.get_or_create_default_product(db),
                              watchlist={"keywords": ["agents"]})
     html = render_settings(db)
     assert "resolves" in html
@@ -209,8 +224,9 @@ def test_status_line_says_never_before_the_first_run(db):
 
 
 def test_composed_queries_are_previewed(db):
-    settings.set_news_config(db, watchlist={"keywords": ["agent orchestration"],
-                                            "sources": ["techcrunch.com"]})
+    products.set_news_config(db, products.get_or_create_default_product(db),
+                             watchlist={"keywords": ["agent orchestration"],
+                                        "sources": ["techcrunch.com"]})
     html = render_settings(db)
     assert "&quot;agent orchestration&quot; site:techcrunch.com" in html
 
@@ -218,6 +234,9 @@ def test_composed_queries_are_previewed(db):
 # --- routes ---
 
 def test_watchlist_round_trips_through_the_form(client):
+    s0 = client._session_factory()
+    products.get_or_create_default_product(s0)
+    s0.close()
     r = client.post("/settings/news", data={
         "news_enabled": "1",
         "news_api_key_ref": "BRAVE_API_KEY",
@@ -228,13 +247,16 @@ def test_watchlist_round_trips_through_the_form(client):
     }, follow_redirects=False)
     assert r.status_code == 303
     s = client._session_factory()
-    cfg = settings.get_news_config(s)
+    # Split as of #96: watchlist on the Product, throttles on the account.
+    cfg = products.get_news_config(s, products.list_products(s)[0])
     assert cfg["watchlist"]["companies"] == ["Anthropic", "OpenAI"]
     assert cfg["watchlist"]["sources"] == ["techcrunch.com"]
-    assert cfg["count"] == 15 and cfg["freshness"] == "pd"
-    assert settings.effective_news_queries(s) == ['"agent orchestration" site:techcrunch.com',
-                                                  "Anthropic site:techcrunch.com",
-                                                  "OpenAI site:techcrunch.com"]
+    acct = settings.get_news_config(s)
+    assert acct["count"] == 15 and acct["freshness"] == "pd"
+    assert settings.effective_news_queries(s, products.list_products(s)[0]) == [
+        '"agent orchestration" site:techcrunch.com',
+        "Anthropic site:techcrunch.com",
+        "OpenAI site:techcrunch.com"]
     s.close()
 
 

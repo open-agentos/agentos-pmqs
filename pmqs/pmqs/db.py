@@ -4,6 +4,7 @@ SQLAlchemy Core/ORM so a Phase 5 swap to Postgres doesn't require a rewrite.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from sqlalchemy import create_engine
@@ -28,6 +29,7 @@ def init_db() -> None:
     _apply_light_migrations()
     _backfill_default_product()
     _backfill_membership()
+    _fold_news_config_onto_default_product()
     _backfill_session_authorship()
     _backfill_outcome_authorship()
     _backfill_question_authorship()
@@ -64,6 +66,7 @@ def _apply_light_migrations() -> None:
             ("nickname", "TEXT"),
             ("lens_weights", "TEXT"),
             ("archived", "BOOLEAN DEFAULT 0"),
+            ("news_config", "TEXT"),
         ],
     }
     insp = inspect(engine)
@@ -184,6 +187,47 @@ def _backfill_default_product() -> None:
         session.commit()
     finally:
         session.close()
+
+
+def _fold_news_config_onto_default_product() -> None:
+    """One-time fold (#96): the watchlist/queries/product_profile used to live in the
+    account-wide `news` settings row. They belong to a Product now. Move them onto the
+    account's default product rather than dropping them -- a PM who configured a
+    watchlist last week should not open Settings to find it gone.
+
+    Idempotent: skips once the settings row no longer carries the old keys, and never
+    overwrites a Product that already has news_config.
+    """
+    from pmqs import products as products_repo
+    from pmqs import settings as settings_mod
+    from pmqs.models import Setting
+
+    with SessionLocal() as session:
+        row = session.get(Setting, "news")
+        if row is None:
+            return
+        try:
+            stored = json.loads(row.value)
+        except (json.JSONDecodeError, TypeError):
+            return
+        legacy = {k: stored[k] for k in ("watchlist", "queries", "product_profile") if k in stored}
+        if not legacy:
+            return  # already folded
+
+        product = products_repo.get_or_create_default_product(session)
+        if not product.news_config:
+            products_repo.set_news_config(
+                session, product,
+                watchlist=legacy.get("watchlist") or {},
+                queries=legacy.get("queries") or [],
+                product_profile=legacy.get("product_profile") or "",
+            )
+        # Drop the old keys so the fold doesn't run again, and so the account row can't
+        # keep shadowing the Product's copy.
+        for key in ("watchlist", "queries", "product_profile"):
+            stored.pop(key, None)
+        row.value = json.dumps(stored)
+        session.commit()
 
 
 def _backfill_membership() -> None:
