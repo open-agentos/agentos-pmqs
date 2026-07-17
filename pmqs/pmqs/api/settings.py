@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session as OrmSession
 from pmqs import members, products
 from pmqs import settings as settings_mod
 from pmqs.db import get_session
+from pmqs.news.watchlist import parse_field
 from pmqs.web.render import render_error, render_settings
 
 router = APIRouter()
@@ -65,10 +66,18 @@ def save_settings(
 @router.post("/w/{workspace_slug}/settings/news")
 def save_news_settings(
     workspace_slug: str | None = None,
+    news_enabled: str = Form(default=""),
     news_api_key_ref: str = Form(default="BRAVE_API_KEY"),
     news_api_key_raw: str = Form(default=""),
+    wl_industry: str = Form(default=""),
+    wl_keywords: str = Form(default=""),
+    wl_companies: str = Form(default=""),
+    wl_products: str = Form(default=""),
+    wl_sources: str = Form(default=""),
     news_queries: str = Form(default=""),
     product_profile: str = Form(default=""),
+    count: str = Form(default="10"),
+    freshness: str = Form(default="pw"),
     top_n: str = Form(default="3"),
     min_relevance: str = Form(default="0.5"),
     db: OrmSession = Depends(get_session),
@@ -78,25 +87,36 @@ def save_news_settings(
     if not news_api_key_raw:
         news_api_key_raw = current.get("api_key_raw", "")
     # The masked placeholder must not be persisted back as a ref.
-    if news_api_key_ref.startswith("\u2022"):
+    if news_api_key_ref.startswith("•"):
         news_api_key_ref = current.get("api_key_ref", "BRAVE_API_KEY")
-    queries = [q.strip() for q in news_queries.splitlines() if q.strip()]
-    try:
-        top_n_i = int(top_n)
-    except ValueError:
-        top_n_i = current.get("top_n", 3)
-    try:
-        thresh_f = float(min_relevance)
-    except ValueError:
-        thresh_f = current.get("min_relevance", 0.5)
+
+    watchlist = {
+        "industry": parse_field(wl_industry),
+        "keywords": parse_field(wl_keywords),
+        "companies": parse_field(wl_companies),
+        "products": parse_field(wl_products),
+        "sources": parse_field(wl_sources),
+    }
+
+    def _num(raw: str, cast, key: str):
+        try:
+            return cast(raw)
+        except (TypeError, ValueError):
+            return current.get(key)
+
     settings_mod.set_news_config(
         db,
         api_key_ref=news_api_key_ref,
         api_key_raw=news_api_key_raw,
-        queries=queries,
+        # An unchecked checkbox posts nothing at all, so absence IS off.
+        enabled=bool(news_enabled),
+        watchlist=watchlist,
+        queries=parse_field(news_queries),
         product_profile=product_profile,
-        top_n=top_n_i,
-        min_relevance=thresh_f,
+        count=_num(count, int, "count"),
+        freshness=freshness if freshness in dict(settings_mod.FRESHNESS_CHOICES) else current.get("freshness", "pw"),
+        top_n=_num(top_n, int, "top_n"),
+        min_relevance=_num(min_relevance, float, "min_relevance"),
     )
     return RedirectResponse(url=_back(workspace_slug), status_code=303)
 

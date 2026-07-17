@@ -822,6 +822,48 @@ def _set_field(label: str, name: str, value: str, *, placeholder: str = "",
     return f'<label class="set-label">{html.escape(label)}</label>{field}{hint_html}'
 
 
+def _set_select(label: str, name: str, value: str, choices: tuple, hint: str = "") -> str:
+    opts = "".join(
+        f'<option value="{html.escape(v)}"{" selected" if v == value else ""}>{html.escape(t)}</option>'
+        for v, t in choices
+    )
+    hint_html = f'<div class="set-hint">{html.escape(hint)}</div>' if hint else ""
+    return (f'<label class="set-label">{html.escape(label)}</label>'
+            f'<select class="set-input" name="{name}">{opts}</select>{hint_html}')
+
+
+def _set_checkbox(label: str, name: str, checked: bool) -> str:
+    return (f'<label class="set-label"><input type="checkbox" name="{name}" value="1"'
+            f'{" checked" if checked else ""} style="width:auto;margin-right:7px;vertical-align:-1px">'
+            f'{html.escape(label)}</label>')
+
+
+def _news_status_html(db: Any, cfg: dict) -> str:
+    """What the PM needs to know before wondering why the inbox is empty.
+
+    The key is reported as a boolean and nothing more. Never render it, never render a
+    prefix of it, never render its length.
+    """
+    from pmqs import repository, settings as settings_mod
+
+    key_ok = bool(settings_mod.resolve_brave_key(db))
+    queries = settings_mod.effective_news_queries(db, cfg)
+    stored = len(repository.list_news_items(db))
+    last_run = cfg.get("last_run") or ""
+    rows = [
+        f'Brave key: <b>{"resolves" if key_ok else "not found"}</b>',
+        f'Queries this run: <b>{len(queries)}</b>',
+        f'Last run: <b>{html.escape(last_run.replace("T", " ")) if last_run else "never"}</b>'
+        + (f' · promoted <b>{cfg.get("last_promoted", 0)}</b>' if last_run else ""),
+        f'Items in store: <b>{stored}</b>',
+    ]
+    preview = ""
+    if queries:
+        items = "".join(f"<div>{html.escape(q)}</div>" for q in queries)
+        preview = f'<div class="set-label">Will search</div><div class="set-status">{items}</div>'
+    return f'<div class="set-status">{"<br>".join(rows)}</div>{preview}'
+
+
 def _settings_sections(db: Any, prefix: str = "") -> str:
     """Build the Settings sections. The API key is NEVER echoed back: shown masked."""
     from pmqs import settings as settings_mod
@@ -852,19 +894,42 @@ def _settings_sections(db: Any, prefix: str = "") -> str:
 <button class="set-btn" type="submit">Save</button>
 </div></form>"""
 
+    wl = news.get("watchlist") or {}
+
+    def _wl(field: str) -> str:
+        return html.escape("\n".join(wl.get(field) or []))
+
     news_section = f"""<form method="post" action="{prefix}/settings/news">
 <div class="set-section"><h2>News</h2>
 <div class="set-scope">Applies to all products — per-product watchlists are a later change (#78).</div>
+{_set_checkbox("Ingest news", "news_enabled", news.get("enabled", True))}
 {_set_field("Brave API key env var", "news_api_key_ref", n_key_display, placeholder="BRAVE_API_KEY",
             hint="Stored as an env-var reference or inline (masked, never shown). Never committed to the repo.")}
 {_set_field("Brave API key (optional, inline — stored, never shown)", "news_api_key_raw", "", type_="password",
             placeholder="leave blank to keep current")}
-{_set_field("Search queries (one per line)", "news_queries",
+</div>
+<div class="set-section"><h2>Watchlist</h2>
+<div class="set-scope">One per line. Everything except sources becomes a search; sources restrict all of them.</div>
+{_set_field("Industry", "wl_industry", _wl("industry"), textarea=True, placeholder="agent orchestration")}
+{_set_field("Keywords", "wl_keywords", _wl("keywords"), textarea=True, placeholder="AI product management")}
+{_set_field("Companies", "wl_companies", _wl("companies"), textarea=True, placeholder="Anthropic")}
+{_set_field("Product names", "wl_products", _wl("products"), textarea=True, placeholder="Claude Code")}
+{_set_field("Media sources", "wl_sources", _wl("sources"), textarea=True, placeholder="techcrunch.com",
+            hint="Domains. Folded into every search as one site: group, not searched on their own.")}
+{_set_field("Raw queries (advanced, one per line)", "news_queries",
             html.escape("\n".join(news.get("queries", []))), textarea=True,
-            placeholder="agent orchestration&#10;AI product management")}
+            hint="Brave query syntax, passed through untouched and appended to the composed ones.")}
+{_news_status_html(db, news)}
+</div>
+<div class="set-section"><h2>Relevance</h2>
+<div class="set-scope">What gets fetched, and what survives the relevance pass into your inbox.</div>
 {_set_field("Product profile (what the relevance pass judges against)", "product_profile",
             html.escape(news.get("product_profile", "")), textarea=True,
             placeholder="What the product is, who competes, what the PM cares about…")}
+<div class="set-row">
+<div>{_set_select("Freshness", "freshness", str(news.get("freshness", "pw")), settings_mod.FRESHNESS_CHOICES)}</div>
+<div>{_set_field("Results per query", "count", html.escape(str(news.get("count", 10))))}</div>
+</div>
 <div class="set-row">
 <div>{_set_field("Max questions per run", "top_n", html.escape(str(news.get("top_n", 3))))}</div>
 <div>{_set_field("Relevance threshold (0–1)", "min_relevance", html.escape(str(news.get("min_relevance", 0.5))))}</div>
@@ -873,7 +938,8 @@ def _settings_sections(db: Any, prefix: str = "") -> str:
 </div></form>
 <form method="post" action="{prefix}/news/ingest">
 <div class="set-section"><h2>Fetch news now</h2>
-<div class="set-scope">Runs a manual ingestion + relevance pass against your configured queries.</div>
+<div class="set-scope">Runs a manual ingestion + relevance pass against the watchlist above.</div>
+<input type="hidden" name="return_to" value="{prefix}/settings">
 <button class="set-btn" type="submit">Fetch news now</button>
 </div></form>"""
 
