@@ -159,3 +159,70 @@ def test_prefixed_save_redirects_back_to_the_prefixed_settings(client):
     )
     assert r.status_code == 303
     assert r.headers["location"] == f"/w/{slug}/settings"
+
+
+# --- #91: Settings hangs off the identity block, and the block is real ---
+
+
+def test_settings_is_not_a_nav_item(db):
+    """It used to be a JS-injected fourth peer to Inbox/Workspace/Outcomes. Those three
+    are the product's working modes; Settings isn't one of them."""
+    html = render_settings(db)
+    assert "pmqs-settings-nav" not in html
+    assert 'data-nav="settings"' not in html
+    for mode in ("inbox", "workspace", "outcomes"):
+        assert f'data-nav="{mode}"' in html
+
+
+def test_identity_block_links_to_settings(db):
+    html = render_settings(db)
+    assert 'id="identity-block"' in html
+    assert 'href="/settings"' in html
+
+
+def test_identity_block_renders_the_real_member(db):
+    from pmqs import members
+
+    members.set_display_name(db, member_id=members.current_member_id(db), display_name="Ada L")
+    html = render_settings(db)
+    idb = html.split("<!-- IDENTITY -->")[1].split("<!-- /IDENTITY -->")[0]
+    assert "Ada L" in idb
+    assert "Matt McAlister" not in html  # the old hardcoded literal
+
+
+def test_identity_block_escapes_the_name(db):
+    from pmqs import members
+
+    members.set_display_name(db, member_id=members.current_member_id(db),
+                             display_name="<script>x</script>")
+    html = render_settings(db)
+    assert "<script>x</script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_blank_name_falls_back_rather_than_emptying_the_rail(db):
+    from pmqs import members
+
+    m = members.set_display_name(db, member_id=members.current_member_id(db), display_name="   ")
+    assert m.display_name == members.DEFAULT_MEMBER_DISPLAY_NAME
+
+
+def test_display_name_round_trips_through_the_form(client):
+    from pmqs import members
+
+    r = client.post("/settings", data={"provider": "anthropic", "model": "m",
+                                       "display_name": "Grace H"}, follow_redirects=False)
+    assert r.status_code == 303
+    s = client._session_factory()
+    m = members.get_or_create_default_member(s)
+    assert m.display_name == "Grace H"
+    s.close()
+    assert "Grace H" in client.get("/settings").text
+
+
+def test_identity_link_stays_inside_the_workspace(client):
+    s = client._session_factory()
+    slug = products.get_or_create_product(s, org="open-agentos", repo="agentos-pmqs").slug
+    s.close()
+    r = client.get(f"/w/{slug}/")
+    assert f"'/w/{slug}/settings'" in r.text

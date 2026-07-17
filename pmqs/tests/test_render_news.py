@@ -50,7 +50,10 @@ def test_settings_has_news_section_and_masks_key(db):
     assert "SECRETBRAVE" not in html  # masked, never echoed
 
 
-def test_inbox_has_settings_nav_wiring(db):
+def test_inbox_can_reach_settings(db):
+    """#91: Settings moved off the nav and onto the identity block. It used to be a
+    JS-injected fourth .nav-item peer to Inbox/Workspace/Outcomes."""
     html = render_inbox([])
-    assert "pmqs-settings-nav" in html
+    assert "pmqs-settings-nav" not in html
+    assert 'id="identity-block"' in html
     assert "/settings" in html
