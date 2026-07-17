@@ -25,6 +25,15 @@ def _back(workspace_slug: str | None) -> str:
     return f"/w/{workspace_slug}/settings" if workspace_slug else "/settings"
 
 
+def _current_product(db: OrmSession, workspace_slug: str | None):
+    """Same rule the switcher and render_settings use: explicit slug wins, else the
+    account's default product. None only when no products exist yet."""
+    if workspace_slug is not None:
+        return products.get_product_by_slug(db, workspace_slug)
+    all_products = products.list_products(db)
+    return all_products[0] if all_products else None
+
+
 @router.get("/settings", response_class=HTMLResponse)
 @router.get("/w/{workspace_slug}/settings", response_class=HTMLResponse)
 def settings_page(workspace_slug: str | None = None, db: OrmSession = Depends(get_session)):
@@ -87,16 +96,8 @@ def save_news_settings(
     if not news_api_key_raw:
         news_api_key_raw = current.get("api_key_raw", "")
     # The masked placeholder must not be persisted back as a ref.
-    if news_api_key_ref.startswith("•"):
+    if news_api_key_ref.startswith("\u2022"):
         news_api_key_ref = current.get("api_key_ref", "BRAVE_API_KEY")
-
-    watchlist = {
-        "industry": parse_field(wl_industry),
-        "keywords": parse_field(wl_keywords),
-        "companies": parse_field(wl_companies),
-        "products": parse_field(wl_products),
-        "sources": parse_field(wl_sources),
-    }
 
     def _num(raw: str, cast, key: str):
         try:
@@ -110,14 +111,27 @@ def save_news_settings(
         api_key_raw=news_api_key_raw,
         # An unchecked checkbox posts nothing at all, so absence IS off.
         enabled=bool(news_enabled),
-        watchlist=watchlist,
-        queries=parse_field(news_queries),
-        product_profile=product_profile,
         count=_num(count, int, "count"),
         freshness=freshness if freshness in dict(settings_mod.FRESHNESS_CHOICES) else current.get("freshness", "pw"),
         top_n=_num(top_n, int, "top_n"),
         min_relevance=_num(min_relevance, float, "min_relevance"),
     )
+
+    # The watchlist and the profile belong to the Product, not the account (#96).
+    product = _current_product(db, workspace_slug)
+    if product is not None:
+        products.set_news_config(
+            db, product,
+            watchlist={
+                "industry": parse_field(wl_industry),
+                "keywords": parse_field(wl_keywords),
+                "companies": parse_field(wl_companies),
+                "products": parse_field(wl_products),
+                "sources": parse_field(wl_sources),
+            },
+            queries=parse_field(news_queries),
+            product_profile=product_profile,
+        )
     return RedirectResponse(url=_back(workspace_slug), status_code=303)
 
 

@@ -15,7 +15,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import repository, settings
+from pmqs import products, repository, settings
 
 log = logging.getLogger(__name__)
 
@@ -70,15 +70,13 @@ def ingest(db: OrmSession, config: dict[str, Any] | None = None) -> list:
     Returns the list of newly-created NewsItem rows. Never raises for fetch failures;
     returns [] if news is disabled, or if no key/queries are configured.
 
-    Queries come from settings.effective_news_queries -- the watchlist composed plus the
-    raw escape hatch -- not from cfg["queries"], which is only the escape hatch (#92).
+    Runs once per Product, each against its own watchlist, stamping product_id on every
+    item (#96). Queries come from settings.effective_news_queries -- that product's
+    watchlist composed, plus its raw escape hatch.
     """
     cfg = config or settings.get_news_config(db)
     if not cfg.get("enabled", True):
         log.info("news ingest: disabled in settings")
-        return []
-    queries = settings.effective_news_queries(db, cfg)
-    if not queries:
         return []
     api_key = settings.resolve_brave_key(db)
     if not api_key:
@@ -88,16 +86,24 @@ def ingest(db: OrmSession, config: dict[str, Any] | None = None) -> list:
     count = int(cfg.get("count") or 10)
     freshness = cfg.get("freshness") or ""
     created = []
-    for q in queries:
-        for raw in _fetch_query(q, api_key, count=count, freshness=freshness):
-            item = repository.create_news_item(
-                db,
-                url=raw["url"],
-                title=raw["title"],
-                source_label=raw["source_label"],
-                summary=raw["summary"],
-                published_at=raw["published_at"],
-            )
-            if item is not None:  # None == dedup hit
-                created.append(item)
+    # One fetch per product, against THAT product's watchlist (#96). Previously one
+    # global watchlist fed every product's inbox.
+    for product in products.list_products(db):
+        for q in settings.effective_news_queries(db, product):
+            for raw in _fetch_query(q, api_key, count=count, freshness=freshness):
+                item = repository.create_news_item(
+                    db,
+                    url=raw["url"],
+                    title=raw["title"],
+                    source_label=raw["source_label"] or q,
+                    summary=raw["summary"],
+                    published_at=raw["published_at"],
+                    product_id=product.id,
+                )
+                # create_news_item returns None on the url-unique collision. That
+                # constraint is global, not (product_id, url) -- so a story already
+                # fetched for another product is silently skipped here. Known and
+                # accepted at MVP; see the NewsItem docstring for what the fix costs.
+                if item is not None:
+                    created.append(item)
     return created

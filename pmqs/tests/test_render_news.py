@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 import pytest
 
 from pmqs.db import Base
-from pmqs import repository, settings
+from pmqs import products, repository, settings
 from pmqs.web.render import render_inbox, render_workspace, render_settings
 
 
@@ -40,8 +40,9 @@ def test_news_evidence_rendered_hedged_in_workspace(db):
 
 
 def test_settings_has_news_section_and_masks_key(db):
-    settings.set_news_config(db, api_key_raw="SECRETBRAVE", queries=["ai agents"],
-                             product_profile="PMQs profile")
+    settings.set_news_config(db, api_key_raw="SECRETBRAVE")
+    products.set_news_config(db, products.get_or_create_default_product(db),
+                             queries=["ai agents"], product_profile="PMQs profile")
     html = render_settings(db)
     assert ">News</h2>" in html
     assert "Fetch news now" in html

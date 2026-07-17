@@ -21,7 +21,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import context_feed, llm, repository, scoring, settings
+from pmqs import context_feed, llm, products, repository, scoring, settings
 from pmqs.config import LENS_WEIGHTS
 from pmqs.dedup import dedup
 
@@ -57,18 +57,32 @@ def _citation(item: Any) -> dict[str, Any]:
 
 
 def promote_relevant(db: OrmSession, config: dict[str, Any] | None = None) -> list:
-    """Run the batched relevance pass over unprocessed raw items.
+    """Run the relevance pass, once per Product, over that product's unprocessed items.
 
-    Returns the promoted Questions (may be empty). Never raises for LLM issues.
+    Returns every promoted Question across all products (may be empty). Never raises
+    for LLM issues.
+
+    Before #96 this batched EVERY product's items into ONE prompt, judged them against
+    ONE global profile, and created Questions with no product_id at all -- which meant
+    a news question could land in the wrong product's inbox. It now loops.
     """
     if not llm.is_enabled():
         return []
     cfg = config or settings.get_news_config(db)
-    raw_items = repository.list_news_items(db, unprocessed_only=True)
+    promoted: list = []
+    for product in products.list_products(db):
+        promoted.extend(_promote_for_product(db, product, cfg))
+    return promoted
+
+
+def _promote_for_product(db: OrmSession, product, cfg: dict[str, Any]) -> list:
+    """One relevance pass for one Product: its items, its profile, its inbox."""
+    raw_items = repository.list_news_items(db, unprocessed_only=True, product_id=product.id)
     if not raw_items:
         return []
 
-    profile = cfg.get("product_profile") or "(no product profile configured)"
+    product_cfg = products.get_news_config(db, product)
+    profile = product_cfg.get("product_profile") or "(no product profile configured)"
     top_n = cfg.get("top_n", 3)
     threshold = cfg.get("min_relevance", 0.5)
 
@@ -81,18 +95,14 @@ def promote_relevant(db: OrmSession, config: dict[str, Any] | None = None) -> li
     user = (
         f"PRODUCT PROFILE:\n{profile}\n\nRAW NEWS ITEMS:\n" + "\n".join(lines)
     )
-    # product_id=None (i.e. unscoped) is WRONG here and is passed deliberately rather
-    # than silently: promote_relevant() batches every product's unprocessed news items
-    # into one prompt, against one global product_profile, and creates Questions with no
-    # product_id at all. There is no single product to scope to until that is fixed.
-    # Tracked separately as a Phase 4 defect -- news ingestion is not live, so nothing
-    # leaks today. Do NOT copy this call as a template; see context_feed's SCOPE note.
-    user = context_feed.augment(user, context_feed.build_context_block(db, product_id=None))
+    user = context_feed.augment(
+        user, context_feed.build_context_block(db, product_id=product.id)
+    )
 
     try:
         result = llm.complete_json(_SYSTEM, user, settings_cfg=settings.get_llm(db), max_tokens=1500)
     except Exception as exc:
-        log.warning("news relevance pass failed: %s", exc)
+        log.warning("news relevance pass failed for %s: %s", product.full_name, exc)
         return []
 
     scored = []
@@ -110,7 +120,7 @@ def promote_relevant(db: OrmSession, config: dict[str, Any] | None = None) -> li
             continue
         scored.append((rel, raw_items[idx], entry))
 
-    # Highest relevance first, cap at top_n.
+    # Highest relevance first, cap at top_n. top_n is per product per run.
     scored.sort(key=lambda t: t[0], reverse=True)
     scored = scored[:top_n]
 
@@ -146,6 +156,7 @@ def promote_relevant(db: OrmSession, config: dict[str, Any] | None = None) -> li
             evidence=cand["evidence"],
             source="news",
             status="proposed",
+            product_id=product.id,
         )
         score, dims = scoring.score_question(q)
         repository.set_question_score(db, q.id, score, dims)

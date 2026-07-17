@@ -94,7 +94,7 @@ def test_advanced_section_shows_the_context_budget(db):
 
 def test_raw_keys_never_rendered(db):
     settings.set_llm(db, provider="anthropic", model="m", api_key_raw="sk-llm-secret")
-    settings.set_news_config(db, api_key_raw="brave-secret", queries=["x"])
+    settings.set_news_config(db, api_key_raw="brave-secret")
     html = render_settings(db)
     assert "sk-llm-secret" not in html
     assert "brave-secret" not in html

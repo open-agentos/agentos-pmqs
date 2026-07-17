@@ -73,6 +73,44 @@ def get_or_create_product(
     return product
 
 
+# The watchlist and the profile are what make a Product a Product; the Brave key and the
+# throttles stay on the account (settings.py). See #96 for the split.
+_NEWS_FIELDS = ("watchlist", "queries", "product_profile")
+
+
+def get_news_config(db: OrmSession, product: Product | None) -> dict[str, Any]:
+    """This Product's news config, merged over empty defaults (#96).
+
+    `product=None` (an account with no products yet) returns the defaults rather than
+    raising -- render paths call this before the first product exists.
+    """
+    stored = product.news_config_dict if product is not None else {}
+    cfg: dict[str, Any] = {"watchlist": {}, "queries": [], "product_profile": ""}
+    cfg.update({k: v for k, v in stored.items() if k in _NEWS_FIELDS})
+    if not isinstance(cfg.get("watchlist"), dict):
+        cfg["watchlist"] = {}
+    if not isinstance(cfg.get("queries"), list):
+        cfg["queries"] = []
+    return cfg
+
+
+def set_news_config(
+    db: OrmSession,
+    product: Product,
+    *,
+    watchlist: dict[str, list[str]] | None = None,
+    queries: list[str] | None = None,
+    product_profile: str = "",
+) -> dict[str, Any]:
+    product.news_config = json.dumps({
+        "watchlist": watchlist or {},
+        "queries": queries or [],
+        "product_profile": product_profile,
+    })
+    db.commit()
+    return get_news_config(db, product)
+
+
 def get_product(db: OrmSession, product_id: str) -> Product | None:
     return db.get(Product, product_id)
 
