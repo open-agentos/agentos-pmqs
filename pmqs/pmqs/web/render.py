@@ -225,25 +225,47 @@ def _rel_age(created_at: str | None) -> str:
     return f"{int(secs)}w"
 
 
-def source_card_html(e: dict) -> str:
-    """One evidence object as a source card. Shared by the Inbox detail pane and, per
-    #111, the Evidence tab -- which is why the markup stays generic."""
+# #111: the Inbox detail pane and the Evidence tab render the same evidence object with
+# different markup. One builder, two styles. The class names are NOT interchangeable --
+# .evidence-item / .evidence-title / .evidence-sub are contract §4, so they are data here
+# rather than something a caller can improvise.
+#
+# link_refs is the one genuine behavioural difference and it is preserved, not tidied:
+# the Evidence tab renders a repo ref's URL as plain text while linking a news URL. That
+# inconsistency predates this issue and #111 is scoped as a pure refactor, so it stays.
+# Worth its own issue -- see the PR.
+_SOURCE_STYLES = {
+    #          wrapper           title             sub               link_refs
+    "detail":   ("source-card",   "source-ref",     "source-meta",   True),
+    "evidence": ("evidence-item", "evidence-title", "evidence-sub",  False),
+}
+
+
+def source_card_html(e: dict, style: str = "detail") -> str:
+    """One evidence object as a card. `style` picks the class set and whether a
+    non-news ref's URL is hyperlinked."""
+    try:
+        wrap, title_cls, sub_cls, link_refs = _SOURCE_STYLES[style]
+    except KeyError:
+        raise ValueError(f"unknown source-card style: {style!r}") from None
+
+    url = html.escape(e.get("url", "") or "")
     if e.get("type") == "news":
         src = html.escape(e.get("source", "") or "source")
         title = html.escape(e.get("title", "") or "")
         date = html.escape(e.get("date", "") or "")
-        url = html.escape(e.get("url", "") or "")
-        ref = f'\u201c{title}\u201d' if title else "News item"
+        ref = f"\u201c{title}\u201d" if title else "News item"
         meta = f"reportedly, via {src}" + (f" \u00b7 {date}" if date else "")
+        link = f'<a href="{url}">{url}</a>' if url else ""
     else:
         ref = html.escape(f"{e.get('type', 'ref')} {e.get('ref', '')}".strip()) or "Reference"
-        url = html.escape(e.get("url", "") or "")
         meta = ""
-    link = f'<a href="{url}">{url}</a>' if url else ""
+        link = (f'<a href="{url}">{url}</a>' if link_refs else url) if url else ""
+
     sub = " ".join(x for x in (meta, link) if x)
     return (
-        f'<div class="source-card"><div class="source-ref">{ref}</div>'
-        f'<div class="source-meta">{sub}</div></div>'
+        f'<div class="{wrap}"><div class="{title_cls}">{ref}</div>'
+        f'<div class="{sub_cls}">{sub}</div></div>'
     )
 
 
@@ -589,28 +611,7 @@ def _msg_html(m: Any) -> str:
 def _evidence_html(evidence: list[dict]) -> str:
     if not evidence:
         return '<div class="evidence-item"><div class="evidence-title">No evidence bound yet.</div></div>'
-    out = []
-    for e in evidence:
-        if e.get("type") == "news":
-            # Attributed-but-hedged news citation.
-            src = html.escape(e.get("source", "") or "source")
-            title = html.escape(e.get("title", "") or "")
-            date = html.escape(e.get("date", "") or "")
-            url = html.escape(e.get("url", "") or "")
-            meta = f'{src}' + (f' · {date}' if date else '')
-            link = f'<a href="{url}">{url}</a>' if url else ''
-            out.append(
-                f'<div class="evidence-item"><div class="evidence-title">“{title}”</div>'
-                f'<div class="evidence-sub">reportedly, via {meta} {link}</div></div>'
-            )
-        else:
-            title = html.escape(f"{e.get('type', 'ref')} {e.get('ref', '')}".strip())
-            url = html.escape(e.get("url", ""))
-            out.append(
-                f'<div class="evidence-item"><div class="evidence-title">{title}</div>'
-                f'<div class="evidence-sub">{url}</div></div>'
-            )
-    return "\n".join(out)
+    return "\n".join(source_card_html(e, style="evidence") for e in evidence)
 
 
 def _proposed_html(proposed: list[Any], session_id: str = "") -> str:
