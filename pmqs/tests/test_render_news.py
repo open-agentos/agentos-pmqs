@@ -43,7 +43,7 @@ def test_settings_has_news_section_and_masks_key(db):
     settings.set_news_config(db, api_key_raw="SECRETBRAVE", queries=["ai agents"],
                              product_profile="PMQs profile")
     html = render_settings(db)
-    assert "News (Brave Search)" in html
+    assert ">News</h2>" in html
     assert "Fetch news now" in html
     assert "ai agents" in html
     assert "PMQs profile" in html
