@@ -10,13 +10,23 @@ GET  /api/workspaces     -> JSON list of this account's products (feeds the Prod
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import products
+from pmqs import members, products
 from pmqs.db import get_session
+from pmqs.models import Member
+from pmqs.web.render import render_product_settings
 
 router = APIRouter()
+
+
+@router.get("/products/new", response_class=HTMLResponse)
+def new_product_page(product_error: str | None = None, db: OrmSession = Depends(get_session)):
+    """Add Product is Product Settings with an empty Product (#99). Same renderer, same
+    fields, mode="create" -- because everything you'd set when adding is everything
+    you'd edit later."""
+    return HTMLResponse(render_product_settings(db, None, mode="create", flash=product_error))
 
 
 @router.post("/products")
@@ -29,15 +39,25 @@ def add_product(
 
     `repo` is an 'org/repo' reference. Resolves against the existing Product row if
     another PM already registered this repo (shared Product via Membership);
-    creates a new Product row otherwise. Malformed refs redirect back to Settings
-    with an error flag rather than a 500 -- this is a hand-typed form field for now.
+    creates a new Product row otherwise.
     """
     try:
         org, repo_name = products.parse_repo_ref(repo)
     except ValueError:
-        return RedirectResponse(url="/settings?product_error=invalid_repo", status_code=303)
+        return RedirectResponse(url="/products/new?product_error=invalid_repo", status_code=303)
 
-    product = products.get_or_create_product(db, org=org, repo=repo_name, display_name=repo_name, nickname=nickname or None)
+    product = products.get_or_create_product(
+        db, org=org, repo=repo_name, display_name=repo_name, nickname=nickname or None
+    )
+
+    # Attach the acting PM to the Product. get_or_create_product resolving to an EXISTING
+    # row is the shared-Product case (two PMs, same repo, one Product) -- that's exactly
+    # when a Membership is most needed, so this runs on resolve as well as on create.
+    # Before #99 nothing on this path called it at all: only db.py's backfill ever made
+    # a Membership row, so every product added through the UI had none. Invisible only
+    # because list_products isn't membership-scoped either.
+    member = db.get(Member, members.current_member_id(db))
+    members.ensure_membership(db, member=member, product=product, role="owner")
 
     # Seed the new product's inbox immediately rather than waiting for tomorrow's
     # scheduled batch (#54).
@@ -45,10 +65,11 @@ def add_product(
 
     seed_workspace(db, product)
 
-    # Product-scoped navigation (/w/{slug}/...) lands in #56; for now land back on
-    # the existing single Inbox view. A proper "Product added" confirmation belongs
-    # with the switcher UI (#55) rather than overloading the news-flash query param.
-    return RedirectResponse(url="/", status_code=303)
+    # Land on the product you just added -- specifically, on its Settings, because Add
+    # Product ends exactly where Product Settings begins: the watchlist and profile that
+    # make it useful are the next thing you need. Until #99 this redirected to "/",
+    # i.e. a DIFFERENT product's inbox, on a stale "#56 lands later" comment.
+    return RedirectResponse(url=f"/w/{product.slug}/settings?added=1", status_code=303)
 
 
 @router.get("/api/workspaces")

@@ -959,7 +959,26 @@ def render_settings(db: Any, template_path: Path | None = None, *,
     )
 
 
-def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "edit") -> str:
+_PRODUCT_FLASHES = {
+    "invalid_repo": ("error", "That doesn't look like an org/repo reference. Try open-agentos/agentos-pmqs."),
+    "added": ("ok", "Product added. Give it a watchlist and a profile and it'll start earning its inbox."),
+}
+
+
+def _product_flash_html(flash: str | None) -> str:
+    """Render the flag instead of swallowing it. `?product_error=invalid_repo` has been
+    redirected to since #53 and rendered by NOTHING -- type a bad ref and you were
+    silently bounced with no explanation (#99)."""
+    if not flash or flash not in _PRODUCT_FLASHES:
+        return ""
+    kind, message = _PRODUCT_FLASHES[flash]
+    colour = "--pulse-coral" if kind == "error" else "--accent-sage"
+    return (f'<div class="set-section" style="border-color:var({colour})">'
+            f'<div style="color:var({colour});font-size:13px">{html.escape(message)}</div></div>')
+
+
+def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "edit",
+                               flash: str | None = None) -> str:
     """PRODUCT sections: what makes this product this product.
 
     `mode="create"` renders the same fields with an empty Product and a Create button --
@@ -1034,7 +1053,7 @@ def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "
 </form>"""
 
     if creating:
-        return body
+        return _product_flash_html(flash) + body
 
     people = members_repo.list_product_members(db, product_id=product.id)
     member_rows = "".join(
@@ -1052,11 +1071,12 @@ def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "
 <button class="set-btn" type="submit">Archive this product</button>
 </div></form>"""
 
-    return "\n".join([body, members_section, archive])
+    return "\n".join([_product_flash_html(flash), body, members_section, archive])
 
 
 def render_product_settings(db: Any, product: Any, template_path: Path | None = None, *,
-                            workspace_slug: str | None = None, mode: str = "edit") -> str:
+                            workspace_slug: str | None = None, mode: str = "edit",
+                            flash: str | None = None) -> str:
     """PRODUCT settings. Reached at /w/{slug}/settings from the Product switcher.
 
     Shares the template's Settings view slot with render_settings -- one view, two
@@ -1064,7 +1084,7 @@ def render_product_settings(db: Any, product: Any, template_path: Path | None = 
     """
     prefix = f"/w/{workspace_slug}" if workspace_slug else ""
     return _render_settings_view(
-        db, _product_settings_sections(db, product, prefix, mode),
+        db, _product_settings_sections(db, product, prefix, mode, flash),
         template_path=template_path, workspace_slug=workspace_slug,
     )
 
