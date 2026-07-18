@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import framing, products, repository, scoring
+from pmqs import framing, products, repository, scoring, settings
 from pmqs.dedup import dedup
 from pmqs.triggers import ALL_TRIGGERS
 
@@ -23,11 +23,12 @@ def run_triggers(state: dict[str, Any], triggers=None) -> list[dict[str, Any]]:
     return hits
 
 
-def hits_to_candidates(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def hits_to_candidates(hits: list[dict[str, Any]], *,
+                       settings_cfg: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Frame each hit into a Question candidate. Framing never raises (stub-safe)."""
     candidates = []
     for hit in hits:
-        framed = framing.frame(hit)
+        framed = framing.frame(hit, settings_cfg=settings_cfg)
         candidates.append(
             {
                 "title": framed["title"],
@@ -43,7 +44,8 @@ def hits_to_candidates(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def generate(db: OrmSession, state: dict[str, Any], triggers=None, *, product_id: str | None = None) -> list:
     """Full pass: triggers -> frame -> dedup -> persist -> score. Returns Questions."""
     hits = run_triggers(state, triggers)
-    candidates = dedup(hits_to_candidates(hits))
+    llm_cfg = settings.get_llm(db)
+    candidates = dedup(hits_to_candidates(hits, settings_cfg=llm_cfg), settings_cfg=llm_cfg)
     questions = []
     for cand in candidates:
         q = repository.create_question(

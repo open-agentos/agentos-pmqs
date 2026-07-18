@@ -145,7 +145,7 @@ def _promote_for_product(db: OrmSession, product, cfg: dict[str, Any]) -> list:
             }
         )
 
-    deduped = dedup(candidates)
+    deduped = dedup(candidates, settings_cfg=settings.get_llm(db))
     questions = []
     for cand in deduped:
         q = repository.create_question(

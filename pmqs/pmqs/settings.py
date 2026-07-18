@@ -18,13 +18,16 @@ from pmqs.models import Setting
 
 _LLM_KEY = "llm"
 
-# Default: Anthropic Haiku (product owner decision, 2026-07-13).
+# Default: OpenRouter (product owner decision, 2026-07-18). OpenRouter is an
+# OpenAI-compatible gateway, so base_url is set and llm.py routes via the OpenAI-
+# compatible path (NOT the native-provider path). The model is OpenRouter's slug form
+# (vendor/model, no date stamp), e.g. anthropic/claude-haiku-4.5.
 _LLM_DEFAULTS: dict[str, Any] = {
-    "provider": "anthropic",
-    "model": "anthropic/claude-haiku-4-5-20251001",
-    "api_key_ref": "ANTHROPIC_API_KEY",  # env var name; not the key itself
+    "provider": "openrouter",
+    "model": "anthropic/claude-haiku-4.5",
+    "api_key_ref": "OPENROUTER_API_KEY",  # env var name; not the key itself
     "api_key_raw": "",                     # optional inline key (kept out of renders)
-    "base_url": "",
+    "base_url": "https://openrouter.ai/api/v1",
 }
 
 _CONTEXT_KEY = "context_feed"

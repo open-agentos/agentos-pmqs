@@ -170,12 +170,14 @@ def _resolve_from_settings(cfg: dict[str, Any]) -> _Resolved:
 
 
 def _resolve(settings_cfg: dict[str, Any] | None = None) -> _Resolved:
-    # Settings take precedence when provided and non-empty.
-    if settings_cfg:
-        return _resolve_from_settings(settings_cfg)
     mode = os.environ.get("PMQS_LLM_MODE", "hermes").lower()
+    # off is a global kill switch: it wins even over saved Settings, so an offline/test
+    # env can never reach a live provider just because a default key happens to resolve.
     if mode == "off":
         raise LlmUnavailable("PMQS_LLM_MODE=off")
+    # Otherwise Settings take precedence when provided and non-empty.
+    if settings_cfg:
+        return _resolve_from_settings(settings_cfg)
     if mode == "api":
         return _resolve_api()
     return _resolve_hermes()
