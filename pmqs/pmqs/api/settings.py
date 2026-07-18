@@ -16,10 +16,10 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import config, members, products
+from pmqs import members, products
 from pmqs import settings as settings_mod
+from pmqs.api.product_form import apply_product_config
 from pmqs.db import get_session
-from pmqs.news.watchlist import parse_field
 from pmqs.web.render import render_error, render_product_settings, render_settings
 
 router = APIRouter()
@@ -158,33 +158,17 @@ async def save_product_settings(
         return RedirectResponse(url=f"/w/{workspace_slug}/settings?product_error=invalid_repo",
                                 status_code=303)
 
-    # The 8 lens weights are read off the raw form rather than declared as 8 Form()
-    # params: the lens set lives in config.LENS_WEIGHTS, and duplicating it in a
-    # signature is how the two drift apart. A missing or unparseable field keeps the
-    # product's current weight rather than silently zeroing that lens.
+    # The watchlist, profile and 8 lens weights share one parser with Add Product
+    # (api/product_form) so the create and edit paths can't drift. The lens set lives in
+    # config.LENS_WEIGHTS, not a fixed signature; a missing/unparseable field keeps the
+    # current weight rather than zeroing that lens. website is not a field here, so it's
+    # preserved (apply_product_config passes website=None -> keep stored).
     form = await request.form() if request is not None else {}
-    weights: dict[str, float] = {}
-    for lens in config.LENS_WEIGHTS:
-        raw = form.get(f"lens_{lens}")
-        if raw in (None, ""):
-            continue
-        try:
-            weights[lens] = float(raw)
-        except (TypeError, ValueError):
-            continue
-    products.set_lens_weights(db, product, weights)
-
-    products.set_news_config(
+    apply_product_config(
         db, product,
-        watchlist={
-            "industry": parse_field(wl_industry),
-            "keywords": parse_field(wl_keywords),
-            "companies": parse_field(wl_companies),
-            "products": parse_field(wl_products),
-            "sources": parse_field(wl_sources),
-        },
-        queries=parse_field(news_queries),
-        product_profile=product_profile,
+        wl_industry=wl_industry, wl_keywords=wl_keywords, wl_companies=wl_companies,
+        wl_products=wl_products, wl_sources=wl_sources, news_queries=news_queries,
+        product_profile=product_profile, lens_form=form,
     )
     return RedirectResponse(url=f"/w/{workspace_slug}/settings", status_code=303)
 

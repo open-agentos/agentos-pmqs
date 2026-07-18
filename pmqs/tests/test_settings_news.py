@@ -48,7 +48,7 @@ def test_product_news_config_round_trips(db):
 
 def test_product_news_config_defaults_when_unset(db):
     assert products.get_news_config(db, products.get_or_create_default_product(db)) == {
-        "watchlist": {}, "queries": [], "product_profile": ""}
+        "watchlist": {}, "queries": [], "product_profile": "", "website": ""}
 
 
 def test_product_news_config_tolerates_no_product_yet(db):
