@@ -1146,7 +1146,7 @@ def render_settings(db: Any, template_path: Path | None = None, *,
 
 
 _PRODUCT_FLASHES = {
-    "invalid_repo": ("error", "That doesn't look like an org/repo reference. Try open-agentos/agentos-pmqs."),
+    "invalid_repo": ("error", "That doesn't look like a repository. Paste the GitHub URL or type org/repo (e.g. open-agentos/agentos-pmqs). Your other fields are kept below."),
     "added": ("ok", "Product added. Give it a watchlist and a profile and it'll start earning its inbox."),
 }
 
@@ -1211,11 +1211,12 @@ async function pmqsResearchSite(btn){
 
 
 def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "edit",
-                               flash: str | None = None) -> str:
+                               flash: str | None = None, values: Any = None) -> str:
     """PRODUCT sections: what makes this product this product.
 
     `mode="create"` renders the same fields with an empty Product and a Create button --
-    Add Product is this view before the Product exists (#99).
+    Add Product is this view before the Product exists (#99). `values` repopulates those
+    fields after a failed submit so reviewed content survives a validation error.
     """
     from pmqs import config
     from pmqs import members as members_repo
@@ -1228,6 +1229,13 @@ def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "
     def _wl(field: str) -> str:
         return html.escape("\n".join(wl.get(field) or []))
 
+    def fv(name: str, fallback: str = "") -> str:
+        """Field value: on a create re-render after error, echo what was submitted;
+        otherwise use the normal fallback (empty for create, stored for edit)."""
+        if creating and values is not None:
+            return html.escape(str(values.get(name, "")))
+        return fallback
+
     action = "/products" if creating else f"{prefix}/settings"
     verb = "Add product" if creating else "Save"
     label = "" if creating else html.escape(products_repo.product_display_name(db, product))
@@ -1235,13 +1243,13 @@ def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "
     if creating:
         identity = f"""<div class="set-section"><h2>Add a product</h2>
 <div class="set-scope">Give it a website and let PMQs draft the details, or just fill them in. Everything can be changed later.</div>
-{_set_field("Website", "website", "", placeholder="https://yourproduct.com",
+{_set_field("Website", "website", fv("website"), placeholder="https://yourproduct.com",
             hint="The product or company home page. We'll read it and pre-fill the fields below \u2014 review before you save.")}
 {_research_button_html()}
-{_set_field("Repository", "repo", "", placeholder="org/repo",
-            hint="Resolves to the existing product if a colleague already added this repo.")}
-{_set_field("Display name", "display_name", "", placeholder="what it's called")}
-{_set_field("Nickname (optional)", "nickname", "", placeholder="what you call it",
+{_set_field("Repository", "repo", fv("repo"), placeholder="org/repo",
+            hint="Paste the GitHub URL or type org/repo. Resolves to the existing product if a colleague already added this repo.")}
+{_set_field("Display name", "display_name", fv("display_name"), placeholder="what it's called")}
+{_set_field("Nickname (optional)", "nickname", fv("nickname"), placeholder="what you call it",
             hint="Shown in the switcher. Sets the URL when the product is created.")}
 </div>"""
     else:
@@ -1261,24 +1269,24 @@ def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "
 
     watchlist = f"""<div class="set-section"><h2>Watchlist</h2>
 <div class="set-scope">What this product watches for. One per line; everything except sources becomes a search, sources restrict all of them.</div>
-{_set_field("Industry", "wl_industry", _wl("industry"), textarea=True, placeholder="agent orchestration")}
-{_set_field("Keywords", "wl_keywords", _wl("keywords"), textarea=True, placeholder="AI product management")}
-{_set_field("Companies", "wl_companies", _wl("companies"), textarea=True, placeholder="Anthropic")}
-{_set_field("Product names", "wl_products", _wl("products"), textarea=True, placeholder="Claude Code")}
-{_set_field("Media sources", "wl_sources", _wl("sources"), textarea=True, placeholder="techcrunch.com",
+{_set_field("Industry", "wl_industry", fv("wl_industry", _wl("industry")), textarea=True, placeholder="agent orchestration")}
+{_set_field("Keywords", "wl_keywords", fv("wl_keywords", _wl("keywords")), textarea=True, placeholder="AI product management")}
+{_set_field("Companies", "wl_companies", fv("wl_companies", _wl("companies")), textarea=True, placeholder="Anthropic")}
+{_set_field("Product names", "wl_products", fv("wl_products", _wl("products")), textarea=True, placeholder="Claude Code")}
+{_set_field("Media sources", "wl_sources", fv("wl_sources", _wl("sources")), textarea=True, placeholder="techcrunch.com",
             hint="Domains. Folded into every search as one site: group, not searched on their own.")}
 {_set_field("Raw queries (advanced, one per line)", "news_queries",
-            html.escape("\n".join(news.get("queries", []))), textarea=True,
+            fv("news_queries", html.escape("\n".join(news.get("queries", [])))), textarea=True,
             hint="Brave query syntax, passed through untouched and appended to the composed ones.")}
 {_set_field("Product profile (what the relevance pass judges against)", "product_profile",
-            html.escape(news.get("product_profile", "")), textarea=True,
+            fv("product_profile", html.escape(news.get("product_profile", ""))), textarea=True,
             placeholder="What the product is, who competes, what the PM cares about\u2026")}
 {"" if creating else _product_news_status_html(db, product)}
 </div>"""
 
     weights = products_repo.weights_for(db, None if creating else product.id)
     rows = "".join(
-        f'<div>{_set_field(config.LENS_LABELS[k], f"lens_{k}", html.escape(str(weights[k])))}</div>'
+        f'<div>{_set_field(config.LENS_LABELS[k], f"lens_{k}", fv(f"lens_{k}", html.escape(str(weights[k]))))}</div>'
         for k in config.LENS_WEIGHTS
     )
     lenses = f"""<div class="set-section"><h2>Lens weights</h2>
@@ -1317,15 +1325,18 @@ def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "
 
 def render_product_settings(db: Any, product: Any, template_path: Path | None = None, *,
                             workspace_slug: str | None = None, mode: str = "edit",
-                            flash: str | None = None) -> str:
+                            flash: str | None = None, values: Any = None) -> str:
     """PRODUCT settings. Reached at /w/{slug}/settings from the Product switcher.
 
     Shares the template's Settings view slot with render_settings -- one view, two
     renderers, because the shell is identical and only the sections differ.
+
+    `values` (a form mapping) repopulates the create form after a validation error, so a
+    bad repo ref doesn't throw away the researched/reviewed fields the PM just filled in.
     """
     prefix = f"/w/{workspace_slug}" if workspace_slug else ""
     return _render_settings_view(
-        db, _product_settings_sections(db, product, prefix, mode, flash),
+        db, _product_settings_sections(db, product, prefix, mode, flash, values),
         template_path=template_path, workspace_slug=workspace_slug,
     )
 

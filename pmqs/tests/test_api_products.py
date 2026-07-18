@@ -52,8 +52,8 @@ def test_add_product_creates_product(client):
 
 def test_add_product_rejects_malformed_repo_ref(client):
     r = client.post("/products", data={"repo": "not-a-valid-ref"}, follow_redirects=False)
-    assert r.status_code == 303
-    assert "product_error" in r.headers["location"]
+    assert r.status_code == 400  # re-renders the form inline (keeps your fields) rather than redirecting
+    assert "repository" in r.text.lower()
 
 
 def test_add_product_twice_resolves_to_the_same_product(client):

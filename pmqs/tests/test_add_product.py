@@ -117,18 +117,42 @@ def test_nickname_is_wired_through(client):
     assert r.headers["location"] == f"/w/{p.slug}/settings?added=1"
 
 
-# --- bug 3: a malformed ref says so ---
+# --- bug 3: a malformed ref says so, WITHOUT throwing away your work ---
 
-def test_malformed_repo_redirects_to_the_form_with_an_error(client):
+def test_malformed_repo_rerenders_the_form_inline(client):
     r = client.post("/products", data={"repo": "not-a-ref"}, follow_redirects=False)
+    assert r.status_code == 400  # re-render, not a redirect to a blank form
+    assert "repository" in r.text.lower()
+
+
+def test_malformed_repo_preserves_reviewed_fields(client):
+    """The whole point: a bad repo must not wipe the researched/reviewed content."""
+    r = client.post("/products", data={
+        "repo": "https://not a url",
+        "website": "https://acme.example",
+        "display_name": "Acme",
+        "wl_industry": "widgets",
+        "product_profile": "The widget platform.",
+    }, follow_redirects=False)
+    assert r.status_code == 400
+    assert 'value="Acme"' in r.text
+    assert 'value="https://acme.example"' in r.text
+    assert "widgets" in r.text
+    assert "The widget platform." in r.text
+
+
+def test_full_github_url_is_accepted(client):
+    """Pasting the address-bar URL should just work, not error."""
+    r = client.post("/products", data={"repo": "https://github.com/open-agentos/agentos"},
+                    follow_redirects=False)
     assert r.status_code == 303
-    assert r.headers["location"] == "/products/new?product_error=invalid_repo"
+    assert "agentos" in r.headers["location"]
 
 
 def test_the_error_is_actually_rendered(client):
     """It has been redirected to since #53 and rendered by nothing."""
     html = client.get("/products/new?product_error=invalid_repo").text
-    assert "org/repo reference" in html
+    assert "org/repo" in html
 
 
 def test_the_added_confirmation_is_rendered(client):

@@ -51,7 +51,15 @@ async def add_product(request: Request, db: OrmSession = Depends(get_session)):
     try:
         org, repo_name = products.parse_repo_ref(repo)
     except ValueError:
-        return RedirectResponse(url="/products/new?product_error=invalid_repo", status_code=303)
+        # Re-render the create form with everything the PM already entered and reviewed
+        # left intact -- a bad repo ref must NOT throw away the researched fields. The old
+        # behaviour redirected to a blank /products/new, which is exactly what wiped the
+        # reviewed content.
+        return HTMLResponse(
+            render_product_settings(db, None, mode="create", flash="invalid_repo",
+                                    values=dict(form)),
+            status_code=400,
+        )
 
     # Did this repo already exist? get_or_create_product would resolve to it silently;
     # we need to know BEFORE, so we don't write this PM's researched watchlist/profile
