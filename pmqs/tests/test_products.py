@@ -33,6 +33,11 @@ def db():
 def test_parse_repo_ref():
     assert products.parse_repo_ref("open-agentos/agentos") == ("open-agentos", "agentos")
     assert products.parse_repo_ref("/open-agentos/agentos/") == ("open-agentos", "agentos")
+    # pasted GitHub URLs, the natural thing to enter
+    assert products.parse_repo_ref("https://github.com/open-agentos/agentos") == ("open-agentos", "agentos")
+    assert products.parse_repo_ref("github.com/open-agentos/agentos") == ("open-agentos", "agentos")
+    assert products.parse_repo_ref("https://github.com/open-agentos/agentos.git") == ("open-agentos", "agentos")
+    assert products.parse_repo_ref("https://github.com/open-agentos/agentos/tree/main") == ("open-agentos", "agentos")
     with pytest.raises(ValueError):
         products.parse_repo_ref("not-a-repo-ref")
 

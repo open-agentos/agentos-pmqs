@@ -23,10 +23,32 @@ def _slugify(text: str) -> str:
 
 
 def parse_repo_ref(ref: str) -> tuple[str, str]:
-    """Split an 'org/repo' string into (org, repo). Raises ValueError if malformed."""
-    parts = ref.strip().strip("/").split("/")
-    if len(parts) != 2 or not parts[0] or not parts[1]:
+    """Split a repo reference into (org, repo).
+
+    Accepts 'org/repo' or a pasted GitHub URL -- https://github.com/org/repo,
+    github.com/org/repo, with or without a trailing '.git' or extra path like
+    '/tree/main'. Takes the first two path segments. Raises ValueError if it can't find
+    both an org and a repo. (People paste the URL from the address bar; rejecting that
+    was a real onboarding snag.)
+    """
+    s = ref.strip()
+    low = s.lower()
+    for scheme in ("https://", "http://"):
+        if low.startswith(scheme):
+            s = s[len(scheme):]
+            low = s.lower()
+            break
+    for host in ("www.github.com/", "github.com/"):
+        if low.startswith(host):
+            s = s[len(host):]
+            break
+    s = s.strip("/")
+    if s.lower().endswith(".git"):
+        s = s[:-4]
+    parts = [p for p in s.split("/") if p]
+    if len(parts) < 2 or not parts[0] or not parts[1]:
         raise ValueError(f"Expected 'org/repo', got {ref!r}")
+    return parts[0], parts[1]
     return parts[0], parts[1]
 
 
