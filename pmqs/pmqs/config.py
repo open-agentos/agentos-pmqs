@@ -4,6 +4,40 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+
+def _load_dotenv() -> None:
+    """Populate os.environ from a project .env, without overriding what's already set.
+
+    The app previously read keys ONLY from the real process env or ~/.hermes/.env, so a
+    key placed in the project .env was invisible (a known gotcha). This makes .env the
+    source of global defaults -- e.g. the single global BRAVE_API_KEY the onboarding
+    research pass and news fetcher both use (decision 12.4), and OPENROUTER_API_KEY --
+    so a fresh checkout works after `cp .env.example .env` and filling it in.
+
+    Deliberately tiny and dependency-free (python-dotenv is not a dep, and two other
+    modules already hand-parse .env this way). A real process-env var always wins, so
+    deployments that inject secrets directly are unaffected.
+    """
+    _here = Path(__file__).resolve()
+    # parents[1] = the pmqs/ project dir (holds .env.example); parents[2] = repo root.
+    for candidate in (_here.parents[1] / ".env", _here.parents[2] / ".env"):
+        if not candidate.exists():
+            continue
+        try:
+            for line in candidate.read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                k, v = k.strip(), v.strip().strip('"').strip("'")
+                if k and k not in os.environ:  # never override the real process env
+                    os.environ[k] = v
+        except OSError:
+            continue
+
+
+_load_dotenv()
+
 # Target AgentOS repo (owner/repo form for gh, or a local path).
 AGENTOS_REPO = os.environ.get("PMQS_AGENTOS_REPO", "open-agentos/agentos-pmqs")
 

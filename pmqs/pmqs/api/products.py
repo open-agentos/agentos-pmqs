@@ -97,6 +97,32 @@ async def add_product(request: Request, db: OrmSession = Depends(get_session)):
     return RedirectResponse(url=f"/w/{product.slug}/settings?added=1", status_code=303)
 
 
+@router.post("/products/research")
+async def research_product_endpoint(request: Request, db: OrmSession = Depends(get_session)):
+    """Onboarding research: given a home page URL, return a draft of the Add Product
+    fields for the PM to review (see docs/build-spec-product-onboarding.md).
+
+    UI-triggered only (decision 12.2) -- this is where the LLM/search spend happens, on
+    an explicit click. Creates nothing; pure read + suggest. Returns only distilled
+    field values -- never the fetched HTML, never any key. Always 200 with a well-formed
+    (possibly empty) body so the client can populate whatever came back and let the PM
+    fill the rest by hand.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    url = (body.get("url") or "").strip() if isinstance(body, dict) else ""
+    if not url:
+        return JSONResponse({"error": "no_url"}, status_code=400)
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    from pmqs.research import research_product
+
+    return JSONResponse(research_product(db, url))
+
+
 @router.get("/api/workspaces")
 def list_workspaces(db: OrmSession = Depends(get_session)):
     rows = products.list_products(db)
