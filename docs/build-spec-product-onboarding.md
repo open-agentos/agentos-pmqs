@@ -46,10 +46,11 @@ Add Product form
   │
   │   … click …
   │   POST /products/research { url } ──► research pipeline (§5)
-  │   ◄── JSON: { name, profile, watchlist{…}, queries[], repo_guess? }
+  │   ◄── JSON: { name, profile, watchlist{…} }
   │
   ├─ (fields fill in, client-side, in place — the "inviting" moment)
-  ├─ Nickname / Watchlist / Profile / Lens weights  ← pre-populated, editable
+  ├─ Display name / Watchlist / Profile  ← pre-populated, editable
+  │   (Repository and Nickname stay the PM's; lens weights keep defaults)
   │
   │   … PM reviews, edits, submits …
   └─ POST /products  ──►  create + persist watchlist/profile (§7)  ──►  seed pass
@@ -67,7 +68,7 @@ The research output maps 1:1 onto fields that already exist on the create form a
 
 | Field (form `name`) | Source | Notes |
 |---|---|---|
-| `nickname` | product's common name from the site | drives the slug; "what you call it" — the natural home for the researched name. `display_name` stays `= repo` as today. |
+| `display_name` | product's common name from the site | the researched name lands here (decision 12.3). A `display_name` field is added to the create identity block for this. `nickname` stays the PM's optional override and is left blank by research. |
 | `product_profile` | LLM synthesis | 2–4 sentences: what it is, who it's for, who competes. This is what the relevance pass judges against — the highest-value field to get right. |
 | `wl_industry` | LLM synthesis | e.g. "agent orchestration" |
 | `wl_keywords` | LLM synthesis | category/problem terms |
@@ -75,7 +76,8 @@ The research output maps 1:1 onto fields that already exist on the create form a
 | `wl_products` | search API + LLM | competing/adjacent product names |
 | `wl_sources` | search API + LLM | domains that cover this space (folded into every query as a `site:` group — see `news/watchlist.py`) |
 | `news_queries` | — | left blank; the raw escape hatch stays the PM's. |
-| `repo_guess` (optional) | GitHub link on the page / search | §12 — a *suggestion* into the Repository field, clearly labelled a guess, never auto-accepted. |
+
+**Repository is never suggested (decision 12.1).** The `org/repo` stays entirely manual — research does not scan the page for GitHub links or guess a repo. The website drives the signal side only.
 
 Every list field is parsed the same way the rest of the app parses watchlists: one term per line, via `news.watchlist.parse_field`. The research module should emit newline-joined strings (or lists the endpoint joins) so the form textareas populate exactly as a hand-typed watchlist would.
 
@@ -104,9 +106,9 @@ New module: **`pmqs/research.py`** (pure logic + prompt) with the network/LLM ca
 ### Stage 1 — read the home page (deterministic, no LLM)
 
 - Fetch the URL with `httpx` (imported inline, as `news/fetch.py` does), `timeout≈15s`, following redirects, **capping the response body** (e.g. 250 KB — stop reading past that; a home page over a quarter-megabyte of HTML is a landing page we don't need in full).
-- Extract with the **standard-library `html.parser.HTMLParser`** — no new dependency. Pull: `<title>`, `<meta name="description">` / `og:title` / `og:description` / `og:site_name`, the first N headings, and a bounded slab of visible text (strip `<script>`/`<style>`). Also collect outbound `github.com/<org>/<repo>` links (feeds the optional repo guess, §12).
+- Extract with the **standard-library `html.parser.HTMLParser`** — no new dependency. Pull: `<title>`, `<meta name="description">` / `og:title` / `og:description` / `og:site_name`, the first N headings, and a bounded slab of visible text (strip `<script>`/`<style>`).
 - Truncate the visible text to ~6–8 K characters before it ever reaches the LLM. This is the single biggest token lever — enforce it here, not in the prompt.
-- Output: a small dict `{ title, description, site_name, text, github_links[] }`. This alone is enough to seed Stage 2, and enough to pre-fill *something* (name + a rough profile) even if Stages 2–3 fail.
+- Output: a small dict `{ title, description, site_name, text }`. This alone is enough to seed Stage 2, and enough to pre-fill *something* (name + a rough profile) even if Stages 2–3 fail.
 
 **Degradation:** fetch/parse failure → return an empty dict; the endpoint proceeds with whatever it has (possibly nothing) and the PM fills the form by hand.
 
@@ -135,11 +137,13 @@ This is the "collect enough from the site to query the search API" step the feat
 
 ---
 
-## 6. Storage
+## 6. Storage & the search key
 
 Persist the entered `website` so the product can be re-researched later and so Settings can show it. **Store it inside `news_config`** as `news_config["website"]` — it is JSON already, so this needs **no migration** (consistent with `watchlist`/`queries`/`product_profile` living there). Extend `products.get_news_config`'s `_NEWS_FIELDS` to include `website`, thread it through `set_news_config`, and surface it as a field on the Product Settings (edit) view too, with a "Re-research" affordance reusing the same endpoint.
 
 Do **not** add a `website` column. (The dead `accent` column is a standing reminder that unused columns accrete here — don't add another.)
+
+**Search key (decision 12.4).** Research reuses the global Brave Search API — the same key the news fetcher already resolves via `settings.resolve_brave_key` (env var `BRAVE_API_KEY`). It is a *global* default: one key for the whole deployment, read from the environment, not per-product. `.env.example` already lists `BRAVE_API_KEY`, but per a known repo fact the app never loads `.env` into the process (no `load_dotenv` anywhere — a key placed only in `.env` is invisible today). This plan closes that: `config.py` gains a minimal, dependency-free `.env` loader at import time so `BRAVE_API_KEY` (and `OPENROUTER_API_KEY`) in `.env` become the global defaults without the PM configuring anything. It never overrides a var already set in the real process env, so deployments that inject secrets directly are unaffected.
 
 ---
 
@@ -207,10 +211,10 @@ Land order: **A → B → C (→ D)**. A and B are independent and can be parall
 
 ---
 
-## 12. Needs a human (Matt)
+## 12. Resolved decisions
 
-1. **Repo discovery from the site** — Stage 1 already collects `github.com/<org>/<repo>` links from the page. Do you want the research pass to *suggest* one into the Repository field (labelled a guess, never auto-accepted), or leave repo entirely manual? Low effort, but it's a product call about how much to infer.
-2. **Auto-run on paste vs. explicit button.** The plan defaults to an explicit "Research this site" button (spends only on click). Auto-running when a valid URL is pasted is more magical but spends on every completed URL. Your call — the button is the safe default.
-3. **`display_name` on create.** Today create has no `display_name` field and sets `display_name = repo`; the researched name lands in `nickname`. If you'd rather the researched name become the `display_name`, add that field to the create identity block. Minor.
-4. **Search provider.** The plan reuses Brave (same key as news) via its *web* search endpoint. If onboarding research should use a different/better search source than the news watchlist, that's a decision to make before Issue B.
-5. **Prefill vs. research-on-create.** The plan recommends client-side prefill-then-review. If you'd prefer the simpler server-side "submit URL → create → land on filled Settings," §2 describes that fallback and its tradeoffs.
+1. **Repo entry stays manual — no suggestions.** Research never scans for or guesses a GitHub repo; the `org/repo` field is untouched by this feature. (Reflected in §3, §5.)
+2. **LLM calls are UI-triggered, never automatic.** Standing policy: an LLM call happens only in response to an explicit user action. The research pass runs on a "Research this site" button click — not on paste, not on load, not on create.
+3. **The researched name becomes `display_name`.** A `display_name` field is added to the create identity block; research pre-fills it. `nickname` remains the PM's optional override. (Reflected in §3.)
+4. **Global Brave Search API.** Research reuses the one global `BRAVE_API_KEY`, added to `.env` as the default and loaded at startup (§6). No new search provider, no per-product search key.
+5. **Manual trigger, prefill-then-review.** Consistent with 12.2: the PM clicks to research, reviews the pre-filled fields, and commits. No research-on-create, no background research.
