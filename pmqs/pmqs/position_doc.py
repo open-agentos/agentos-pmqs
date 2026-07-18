@@ -32,6 +32,7 @@ the DATE for the same reason: a decision's age is evidence about its force.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from sqlalchemy.orm import Session as OrmSession
@@ -59,6 +60,27 @@ _SYSTEM = (
     "decision, or one made without the evidence now available, carries less force. Never "
     "treat a prior decision as settling the question."
 )
+
+
+# The whole doc is one LLM call covering all 7 sections. 1200 tokens split 7 ways
+# forces the model to write short values for every field just to return valid JSON --
+# uniform thinness. Give it real room; env-tunable so cost stays in the operator's hands.
+_MAX_TOKENS = int(os.environ.get("PMQS_POSITION_DOC_MAX_TOKENS", "4000"))
+
+
+def _doc_llm_cfg(db: OrmSession) -> dict[str, Any]:
+    """LLM settings for position docs.
+
+    Starts from the global Settings, then optionally swaps in a stronger model for this
+    premium, generate-once artifact via PMQS_POSITION_DOC_MODEL (e.g. a Sonnet-tier
+    slug). Provider / base_url / key are left untouched — only the model changes, so the
+    operator's gateway choice (OpenRouter etc.) still applies. Unset => global default.
+    """
+    cfg = dict(settings.get_llm(db))
+    override = os.environ.get("PMQS_POSITION_DOC_MODEL", "").strip()
+    if override:
+        cfg["model"] = override
+    return cfg
 
 
 def _fallback(question: Any) -> dict[str, Any]:
@@ -159,7 +181,7 @@ def generate(db: OrmSession, question: Any, *, member_id: str | None = None) -> 
         parts.append(_prior_block(cites))
     user = "\n".join(parts)
     try:
-        result = llm.complete_json(_SYSTEM, user, settings_cfg=settings.get_llm(db), max_tokens=1200)
+        result = llm.complete_json(_SYSTEM, user, settings_cfg=_doc_llm_cfg(db), max_tokens=_MAX_TOKENS)
         if not isinstance(result, dict):
             return _fallback(question)
         # Ensure all sections exist (fill missing with empty string).
