@@ -143,6 +143,7 @@ async def save_product_settings(
     wl_sources: str = Form(default=""),
     news_queries: str = Form(default=""),
     product_profile: str = Form(default=""),
+    website: str = Form(default=""),
     request: Request = None,
     db: OrmSession = Depends(get_session),
 ):
@@ -168,7 +169,9 @@ async def save_product_settings(
         db, product,
         wl_industry=wl_industry, wl_keywords=wl_keywords, wl_companies=wl_companies,
         wl_products=wl_products, wl_sources=wl_sources, news_queries=news_queries,
-        product_profile=product_profile, lens_form=form,
+        product_profile=product_profile,
+        website=website.strip() or None,  # blank = unchanged (preserve stored), per repo convention
+        lens_form=form,
     )
     return RedirectResponse(url=f"/w/{workspace_slug}/settings", status_code=303)
 
