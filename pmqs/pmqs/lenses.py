@@ -107,7 +107,7 @@ def run_session_lenses(db: OrmSession, session: Any) -> list:
     # Wave 2 item 9 (§10.3), Loops 2 and 3: the same dedup judgment, wider evidence --
     # this Product's prior decisions and colleagues' open inbox items. A candidate that
     # challenges a prior decision still gets raised; that is the point, not a leak.
-    deduped = dedup(candidates)
+    deduped = dedup(candidates, settings_cfg=cfg)
     deduped = judge_prior_awareness(
         deduped, db,
         product_id=session.product_id,

@@ -90,7 +90,8 @@ def _evidence_refs(cand: dict[str, Any]) -> set[str]:
     return {str(e.get("ref")) for e in cand.get("evidence", []) if e.get("ref") is not None}
 
 
-def _llm_are_duplicates(a: dict[str, Any], b: dict[str, Any]) -> bool | None:
+def _llm_are_duplicates(a: dict[str, Any], b: dict[str, Any],
+                        settings_cfg: dict[str, Any] | None = None) -> bool | None:
     """LLM judgment via pmqs.llm. Returns None on unavailable/error (fall back to heuristic)."""
     if not llm.is_enabled():
         return None
@@ -99,7 +100,7 @@ def _llm_are_duplicates(a: dict[str, Any], b: dict[str, Any]) -> bool | None:
         f"Question B:\n  title: {b.get('title')}\n  evidence: {sorted(_evidence_refs(b))}"
     )
     try:
-        result = llm.complete_json(_SYSTEM, user)
+        result = llm.complete_json(_SYSTEM, user, settings_cfg=settings_cfg)
         if isinstance(result, dict) and "duplicate" in result:
             return bool(result["duplicate"])
     except Exception as exc:
@@ -107,8 +108,9 @@ def _llm_are_duplicates(a: dict[str, Any], b: dict[str, Any]) -> bool | None:
     return None
 
 
-def _are_duplicates(a: dict[str, Any], b: dict[str, Any]) -> bool:
-    verdict = _llm_are_duplicates(a, b)
+def _are_duplicates(a: dict[str, Any], b: dict[str, Any],
+                    settings_cfg: dict[str, Any] | None = None) -> bool:
+    verdict = _llm_are_duplicates(a, b, settings_cfg)
     if verdict is not None:
         return verdict
     if _evidence_refs(a) & _evidence_refs(b):
@@ -116,17 +118,22 @@ def _are_duplicates(a: dict[str, Any], b: dict[str, Any]) -> bool:
     return _jaccard(a.get("title", ""), b.get("title", "")) >= _SIM_THRESHOLD
 
 
-def dedup(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def dedup(candidates: list[dict[str, Any]], *,
+          settings_cfg: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Merge near-duplicate candidate Questions. Distinct ones all survive.
 
     Each candidate: {title, description, lens_tags, evidence, source, ...}.
     Merge reasoning is appended to the surviving candidate's description.
+
+    When `settings_cfg` (from pmqs.settings.get_llm) is provided, the LLM duplicate
+    judgment resolves through saved Settings — the global provider default — rather than
+    env/Hermes. Omitted → heuristic-only when the LLM is off.
     """
     survivors: list[dict[str, Any]] = []
     for cand in candidates:
         merged = False
         for surv in survivors:
-            if _are_duplicates(surv, cand):
+            if _are_duplicates(surv, cand, settings_cfg):
                 surv["description"] = (
                     (surv.get("description") or "")
                     + f"\n[dedup] merged duplicate: {cand.get('title')!r} "
@@ -166,7 +173,7 @@ def _prior_evidence(db, *, product_id, member_id, lens, topic, token_budget, now
     return priors, colleagues
 
 
-def _judge_against_prior(cand, priors, colleagues):
+def _judge_against_prior(cand, priors, colleagues, settings_cfg=None):
     """Widened judgment for one candidate. Returns (verdict, prior_outcome, colleague_q).
 
     Degrades to `raise` on every failure path -- see rule 2 in the module docstring.
@@ -187,7 +194,7 @@ def _judge_against_prior(cand, priors, colleagues):
         f"COLLEAGUES' OPEN QUESTIONS:\n{colleague_lines}"
     )
     try:
-        result = llm.complete_json(_PRIOR_SYSTEM, user)
+        result = llm.complete_json(_PRIOR_SYSTEM, user, settings_cfg=settings_cfg)
     except Exception as exc:
         log.warning("prior-awareness judgment failed, raising by default: %s", exc)
         return _DEFAULT_VERDICT, None, None
@@ -241,7 +248,9 @@ def judge_prior_awareness(
     exactly the failure mode §12 warns about, and someone has to be able to find out
     the pass ate a question.
     """
-    from pmqs import repository
+    from pmqs import repository, settings
+
+    llm_cfg = settings.get_llm(db)
 
     try:
         priors, colleagues = _prior_evidence(
@@ -255,7 +264,7 @@ def judge_prior_awareness(
         return candidates
 
     for cand in candidates:
-        verdict, prior_outcome, colleague = _judge_against_prior(cand, priors, colleagues)
+        verdict, prior_outcome, colleague = _judge_against_prior(cand, priors, colleagues, llm_cfg)
 
         if verdict == "route":
             session = repository.find_visible_session_for_question(

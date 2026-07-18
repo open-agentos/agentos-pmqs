@@ -3,8 +3,40 @@ and the LLM seam is honoured when a stub 'LLM' is injected.
 """
 import os
 
+import pytest
+
 import pmqs.framing as framing
 import pmqs.dedup as dedup
+import pmqs.llm as llm
+
+
+def test_openrouter_settings_route_via_openai_compat(monkeypatch):
+    # The default provider is OpenRouter (OpenAI-compatible). With a key present, the
+    # resolver must take the base_url path and openai/-prefix the model so LiteLLM hits
+    # the gateway rather than a native provider.
+    monkeypatch.setenv("PMQS_LLM_MODE", "hermes")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    cfg = {
+        "provider": "openrouter",
+        "model": "anthropic/claude-haiku-4.5",
+        "api_key_ref": "OPENROUTER_API_KEY",
+        "api_key_raw": "",
+        "base_url": "https://openrouter.ai/api/v1",
+    }
+    resolved = llm._resolve(cfg)
+    assert resolved.base_url == "https://openrouter.ai/api/v1"
+    assert resolved.model == "openai/anthropic/claude-haiku-4.5"
+    assert resolved.api_key == "sk-or-test"
+
+
+def test_off_wins_over_settings(monkeypatch):
+    # off is a global kill switch: it must win even when Settings would otherwise resolve.
+    monkeypatch.setenv("PMQS_LLM_MODE", "off")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    cfg = {"provider": "openrouter", "model": "anthropic/claude-haiku-4.5",
+           "api_key_ref": "OPENROUTER_API_KEY", "api_key_raw": "", "base_url": "https://openrouter.ai/api/v1"}
+    with pytest.raises(llm.LlmUnavailable):
+        llm._resolve(cfg)
 
 
 def test_framing_falls_back_when_llm_off(monkeypatch):

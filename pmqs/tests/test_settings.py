@@ -16,10 +16,14 @@ def db():
     s.close()
 
 
-def test_llm_defaults_to_anthropic_haiku(db):
+def test_llm_defaults_to_openrouter(db):
     cfg = settings.get_llm(db)
-    assert cfg["provider"] == "anthropic"
+    assert cfg["provider"] == "openrouter"
     assert "haiku" in cfg["model"]
+    # OpenRouter is OpenAI-compatible: base_url is set so llm.py takes the compat path,
+    # and the key is referenced by env-var name (never stored raw).
+    assert cfg["base_url"] == "https://openrouter.ai/api/v1"
+    assert cfg["api_key_ref"] == "OPENROUTER_API_KEY"
 
 
 def test_set_and_get_llm(db):
