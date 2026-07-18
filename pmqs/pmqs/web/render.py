@@ -1163,6 +1163,53 @@ def _product_flash_html(flash: str | None) -> str:
             f'<div style="color:var({colour});font-size:13px">{html.escape(message)}</div></div>')
 
 
+def _research_button_html() -> str:
+    """The 'Research this site' control. type=button so it never submits the form; the
+    LLM/search spend happens only on this explicit click (decision 12.2)."""
+    return (
+        '<div class="set-row" style="align-items:center;gap:10px">'
+        '<button class="set-btn" type="button" onclick="pmqsResearchSite(this)">Research this site</button>'
+        '<span class="research-status" role="status" style="color:var(--text-muted);font-size:13px"></span>'
+        '</div>'
+    )
+
+
+# Client-side prefill: POST the website to /products/research, drop the returned draft
+# into the form's fields for review. Only overwrites a field when a value came back, so
+# a thin result never blanks something the PM typed. Shared by create and edit forms.
+_RESEARCH_JS = """
+<script>
+async function pmqsResearchSite(btn){
+  var form = btn.closest('form'); if(!form) return;
+  var urlEl = form.querySelector('[name="website"]');
+  var url = urlEl ? urlEl.value.trim() : '';
+  var status = form.querySelector('.research-status');
+  if(!url){ if(status) status.textContent = 'Enter a website first.'; return; }
+  btn.disabled = true; if(status) status.textContent = 'Researching\\u2026';
+  var map = {display_name:'name', product_profile:'profile', wl_industry:'industry',
+             wl_keywords:'keywords', wl_companies:'companies', wl_products:'products',
+             wl_sources:'sources'};
+  try{
+    var resp = await fetch('/products/research', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({url:url})});
+    var data = resp.ok ? await resp.json() : null;
+    if(data && !data.error){
+      var filled = 0;
+      Object.keys(map).forEach(function(f){
+        var el = form.querySelector('[name="'+f+'"]'); var v = data[map[f]];
+        if(el && v){ el.value = v; filled++; }
+      });
+      if(status) status.textContent = filled
+        ? 'Filled in below \\u2014 review and edit.'
+        : "Couldn't find much \\u2014 fill in what you can.";
+    } else if(status){ status.textContent = "Couldn't research that site \\u2014 fill in what you can."; }
+  }catch(e){ if(status) status.textContent = "Couldn't reach the research service."; }
+  finally{ btn.disabled = false; }
+}
+</script>
+"""
+
+
 def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "edit",
                                flash: str | None = None) -> str:
     """PRODUCT sections: what makes this product this product.
@@ -1187,15 +1234,23 @@ def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "
 
     if creating:
         identity = f"""<div class="set-section"><h2>Add a product</h2>
-<div class="set-scope">A GitHub repo to trace. Everything below can be changed later.</div>
+<div class="set-scope">Give it a website and let PMQs draft the details, or just fill them in. Everything can be changed later.</div>
+{_set_field("Website", "website", "", placeholder="https://yourproduct.com",
+            hint="The product or company home page. We'll read it and pre-fill the fields below \u2014 review before you save.")}
+{_research_button_html()}
 {_set_field("Repository", "repo", "", placeholder="org/repo",
             hint="Resolves to the existing product if a colleague already added this repo.")}
+{_set_field("Display name", "display_name", "", placeholder="what it's called")}
 {_set_field("Nickname (optional)", "nickname", "", placeholder="what you call it",
             hint="Shown in the switcher. Sets the URL when the product is created.")}
 </div>"""
     else:
         identity = f"""<div class="set-section"><h2>{label}</h2>
 <div class="set-scope">This product only.</div>
+{_set_field("Website", "website", html.escape(news.get("website", "")),
+            placeholder="https://yourproduct.com",
+            hint="The home page research runs against. Re-research to refresh the watchlist below.")}
+{_research_button_html()}
 {_set_field("Display name", "display_name", html.escape(product.display_name or ""))}
 {_set_field("Nickname (optional)", "nickname", html.escape(product.nickname or ""),
             placeholder="what you call it",
@@ -1239,7 +1294,7 @@ def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "
 </form>"""
 
     if creating:
-        return _product_flash_html(flash) + body
+        return _product_flash_html(flash) + body + _RESEARCH_JS
 
     people = members_repo.list_product_members(db, product_id=product.id)
     member_rows = "".join(
@@ -1257,7 +1312,7 @@ def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "
 <button class="set-btn" type="submit">Archive this product</button>
 </div></form>"""
 
-    return "\n".join([_product_flash_html(flash), body, members_section, archive])
+    return "\n".join([_product_flash_html(flash), body, members_section, archive, _RESEARCH_JS])
 
 
 def render_product_settings(db: Any, product: Any, template_path: Path | None = None, *,
