@@ -75,7 +75,7 @@ def get_or_create_product(
 
 # The watchlist and the profile are what make a Product a Product; the Brave key and the
 # throttles stay on the account (settings.py). See #96 for the split.
-_NEWS_FIELDS = ("watchlist", "queries", "product_profile")
+_NEWS_FIELDS = ("watchlist", "queries", "product_profile", "website")
 
 
 def get_news_config(db: OrmSession, product: Product | None) -> dict[str, Any]:
@@ -85,7 +85,7 @@ def get_news_config(db: OrmSession, product: Product | None) -> dict[str, Any]:
     raising -- render paths call this before the first product exists.
     """
     stored = product.news_config_dict if product is not None else {}
-    cfg: dict[str, Any] = {"watchlist": {}, "queries": [], "product_profile": ""}
+    cfg: dict[str, Any] = {"watchlist": {}, "queries": [], "product_profile": "", "website": ""}
     cfg.update({k: v for k, v in stored.items() if k in _NEWS_FIELDS})
     if not isinstance(cfg.get("watchlist"), dict):
         cfg["watchlist"] = {}
@@ -101,11 +101,19 @@ def set_news_config(
     watchlist: dict[str, list[str]] | None = None,
     queries: list[str] | None = None,
     product_profile: str = "",
+    website: str | None = None,
 ) -> dict[str, Any]:
+    # `website` is the home page the onboarding research pass was run against
+    # (see docs/build-spec-product-onboarding.md). set_news_config replaces the whole
+    # blob, so website=None means "keep the stored one" rather than wiping it -- a save
+    # from a form that has no website field must not erase it.
+    if website is None:
+        website = product.news_config_dict.get("website", "")
     product.news_config = json.dumps({
         "watchlist": watchlist or {},
         "queries": queries or [],
         "product_profile": product_profile,
+        "website": website,
     })
     db.commit()
     return get_news_config(db, product)
@@ -184,6 +192,16 @@ def get_product(db: OrmSession, product_id: str) -> Product | None:
 
 def get_product_by_slug(db: OrmSession, slug: str) -> Product | None:
     return db.scalars(select(Product).where(Product.slug == slug)).first()
+
+
+def get_product_by_org_repo(db: OrmSession, org: str, repo: str) -> Product | None:
+    """Lookup by the (org, repo) dedup key. Lets a caller tell "I just created this"
+    from "this already existed" (the shared-Product resolve case) before calling
+    get_or_create_product -- so Add Product knows whether it's safe to write config
+    onto the row or would be clobbering a colleague's product."""
+    return db.scalars(
+        select(Product).where(Product.org == org).where(Product.repo == repo)
+    ).first()
 
 
 def list_products(db: OrmSession, *, include_archived: bool = False) -> list[Product]:
