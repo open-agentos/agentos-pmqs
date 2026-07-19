@@ -392,12 +392,14 @@ def question_card_html(q: Any, rank: int | None = None) -> str:
 
 
 def render_inbox(questions: list[Any], template_path: Path | None = None,
-                 flash: str | None = None, refreshed: str | None = None,
+                 refresh: str | None = None,
                  db: Any = None, workspace_slug: str | None = None) -> str:
     """Return the full app HTML with Inbox fixture cards replaced by real ones.
 
-    `flash` (optional): 'none' or an integer N — news-ingest banner.
-    `refreshed` (optional): integer N — repo-refresh banner ("Pulled N from the repo").
+    `refresh` (optional): the opaque report token minted by POST /refresh — one
+    unified pass over every data source (repo triggers + news). Decoded here into a
+    per-source banner that says what each source did and *why* it produced nothing
+    when it did. See refresh.RefreshReport and _refresh_report_banner.
     `db`/`workspace_slug` (optional, #55/#56): when given, splices the Product switcher
     (current name + other workspaces) and makes quick-add/refresh/filter actions target
     this workspace's own /w/{slug}/... routes instead of the legacy unprefixed ones.
@@ -406,7 +408,7 @@ def render_inbox(questions: list[Any], template_path: Path | None = None,
     if db is not None:
         src = _apply_rail(src, db, workspace_slug)
 
-    banner = _flash_banner(flash) + _refresh_banner(refreshed)
+    banner = _refresh_report_banner(refresh)
     if questions:
         cards_html = banner + "\n\n".join(
             question_card_html(q, rank=i) for i, q in enumerate(questions, start=1)
@@ -417,10 +419,10 @@ def render_inbox(questions: list[Any], template_path: Path | None = None,
         cards_html = banner + (
             '        <div class="card system"><div class="card-main">'
             '<div class="card-title">Your Inbox is empty.</div>'
-            '<div class="card-meta">Pull questions from the repo, or add your own above.</div>'
+            '<div class="card-meta">Refresh to collect from the repo and your news watchlist, or add your own above.</div>'
             '</div>'
             '<div class="card-actions" onclick="event.stopPropagation()">'
-            '<div class="icon-btn primary" title="Pull from repo" onclick="pmqsRefresh()">⟳</div>'
+            '<div class="icon-btn primary" title="Refresh — collect from repo + news" onclick="pmqsRefresh()">⟳</div>'
             '</div></div>'
         )
 
@@ -431,13 +433,13 @@ def render_inbox(questions: list[Any], template_path: Path | None = None,
     if n == 0:
         raise RuntimeError("Could not locate Inbox card region in app template")
 
-    # Always-visible Refresh control in the Inbox header (testing convenience): runs the
-    # structural-trigger pipeline against the repo. Replaces the plain "Inbox" header.
+    # Always-visible Refresh control in the Inbox header: runs the unified refresh
+    # (repo structural triggers + news ingest/promotion). Replaces the plain "Inbox" header.
     header_html = (
         '<div class="inbox-header" style="display:flex;align-items:center;gap:12px;'
         'justify-content:space-between;">'
         '<span>Inbox</span>'
-        '<button onclick="pmqsRefresh()" title="Pull questions from the repo" '
+        '<button onclick="pmqsRefresh()" title="Refresh — collect from the repo and news watchlist" '
         'style="background:#4a7d6e;color:#fff;border:0;border-radius:6px;padding:6px 14px;'
         'font-size:12.5px;cursor:pointer;">⟳ Refresh</button>'
         '</div>'
@@ -483,7 +485,7 @@ document.addEventListener('DOMContentLoaded', function(){{
     pmqsSelect(first.getAttribute('data-qid'));   // first card selected on load
   }} else if (pane) {{
     pane.innerHTML = '<div class="detail-empty">Nothing to triage. ' +
-      'Pull questions from the repo, or add your own.</div>';
+      'Refresh to collect from the repo and news, or add your own.</div>';
   }}
 }});
 // Override quick-add to create a real PM question server-side.
@@ -514,37 +516,69 @@ document.addEventListener('DOMContentLoaded', function(){{
     return _inject_before_body_close(new_src, inbox_js)
 
 
-def _flash_banner(flash: str | None) -> str:
-    if not flash:
-        return ""
-    if flash == "none":
-        msg = "Nothing relevant in the news today."
-    else:
-        try:
-            n = int(flash)
-            msg = f"{n} new question{'s' if n != 1 else ''} from news."
-        except ValueError:
-            return ""
-    return (
-        f'        <div class="card system" style="border-left:3px solid #4a7d6e;">'
-        f'<div class="card-main"><div class="card-title">{html.escape(msg)}</div></div></div>\n\n'
-    )
+# Per-source refresh copy. Each code maps to a plain-English line; the {detail} slot
+# (already-safe, escaped at render) carries the specifics (issue counts, which env var,
+# etc). `warn=True` sources render amber (a fixable problem) rather than teal (fine).
+_REPO_LINES = {
+    "generated": ("ok", "Repo: {count} new from structural triggers."),
+    "clean": ("ok", "Repo: nothing to raise — {detail}."),
+    "error": ("warn", "Repo: couldn't read the repo — {detail}."),
+}
+_NEWS_LINES = {
+    "promoted": ("ok", "News: {count} new — {detail}."),
+    "disabled": ("warn", "News: turned off in Settings."),
+    "no_key": ("warn", "News: no Brave API key — {detail} (Settings \u2192 News)."),
+    "no_products": ("warn", "News: no products configured."),
+    "no_watchlist": ("warn", "News: no watchlist terms — add companies/keywords in a product's Settings."),
+    "fetched_llm_off": ("warn", "News: {detail} — set an LLM provider in Settings."),
+    "nothing_new": ("ok", "News: no new stories for your watchlist."),
+    "nothing_relevant": ("ok", "News: {detail}."),
+    "error": ("warn", "News: fetch failed — {detail}."),
+}
 
 
-def _refresh_banner(refreshed: str | None) -> str:
-    if refreshed is None or refreshed == "":
+def _refresh_line(table: dict, res) -> tuple[str, str]:
+    """(kind, text) for one source result. kind ∈ {'ok','warn'}."""
+    kind, tmpl = table.get(res.code, ("ok", ""))
+    if not tmpl:
+        return kind, ""
+    text = tmpl.format(count=res.count, detail=html.escape(res.detail or ""))
+    return kind, text
+
+
+def _refresh_report_banner(token: str | None) -> str:
+    """One Inbox banner summarising the last unified Refresh, source by source.
+
+    Decodes the report token from POST /refresh. The headline states the net result;
+    the sub-lines explain each source so a legitimate zero (clean repo, quiet
+    watchlist, missing key) reads as an explanation, not a broken button. Any source
+    flagged `warn` tints the whole banner amber so a fixable problem stands out.
+    """
+    from pmqs.refresh import RefreshReport
+
+    report = RefreshReport.decode(token) if token else None
+    if report is None:
         return ""
-    try:
-        n = int(refreshed)
-    except ValueError:
+
+    repo_kind, repo_text = _refresh_line(_REPO_LINES, report.repo)
+    news_kind, news_text = _refresh_line(_NEWS_LINES, report.news)
+    lines = [t for t in (repo_text, news_text) if t]
+    if not lines:
         return ""
-    if n == 0:
-        msg = "Refreshed — no new questions from the repo (no triggers fired)."
+
+    total = report.total
+    if total:
+        headline = f"Refresh complete — {total} new question{'s' if total != 1 else ''}."
     else:
-        msg = f"Pulled {n} question{'s' if n != 1 else ''} from the repo."
+        headline = "Refresh complete — no new questions."
+
+    any_warn = "warn" in (repo_kind, news_kind)
+    accent = "#b8860b" if any_warn else "#4a7d6e"  # amber if anything needs attention
+    body = "".join(f'<div class="card-meta">{t}</div>' for t in lines)
     return (
-        f'        <div class="card system" style="border-left:3px solid #4a7d6e;">'
-        f'<div class="card-main"><div class="card-title">{html.escape(msg)}</div></div></div>\n\n'
+        f'        <div class="card system" style="border-left:3px solid {accent};">'
+        f'<div class="card-main"><div class="card-title">{html.escape(headline)}</div>'
+        f'{body}</div></div>\n\n'
     )
 
 
@@ -1353,6 +1387,7 @@ def _account_news_status_html(db: Any, cfg: dict) -> str:
         f'Last run: <b>{html.escape(last_run.replace("T", " ")) if last_run else "never"}</b>'
         + (f' \u00b7 promoted <b>{cfg.get("last_promoted", 0)}</b> across all products' if last_run else ""),
         f'Items in store: <b>{len(repository.list_news_items(db))}</b>',
+        'Fetched by <b>Refresh</b> on the Inbox, alongside repo triggers.',
     ]
     return f'<div class="set-status">{"<br>".join(rows)}</div>'
 
@@ -1425,12 +1460,6 @@ def _settings_sections(db: Any, prefix: str = "") -> str:
 </div>
 {_account_news_status_html(db, news)}
 <button class="set-btn" type="submit">Save</button>
-</div></form>
-<form method="post" action="/news/ingest">
-<div class="set-section"><h2>Fetch news now</h2>
-<div class="set-scope">Runs one ingestion + relevance pass across every product, each against its own watchlist.</div>
-<input type="hidden" name="return_to" value="/settings">
-<button class="set-btn" type="submit">Fetch news now</button>
 </div></form>"""
 
     advanced = f"""<form method="post" action="/settings/advanced">

@@ -65,15 +65,15 @@ def test_save_news_settings(client):
     db.close()
 
 
-def test_ingest_no_config_redirects_with_none(client):
-    # No queries/key configured → ingest promotes nothing → ?news=none
+def test_news_ingest_route_is_gone(client):
+    # Fetching moved onto the Inbox Refresh; the standalone Settings endpoint is retired.
     r = client.post("/news/ingest", follow_redirects=False)
-    assert r.status_code == 303
-    assert "news=none" in r.headers["location"]
+    assert r.status_code == 404
 
 
-def test_settings_page_shows_news_section(client):
+def test_settings_page_shows_news_section_without_a_fetch_button(client):
     r = client.get("/settings")
     assert r.status_code == 200
-    assert ">News</h2>" in r.text
-    assert "Fetch news now" in r.text
+    assert ">News</h2>" in r.text          # the News settings (key/throttles) stay
+    assert "Fetch news now" not in r.text  # the button moved to the Inbox Refresh
+    assert "Refresh" in r.text             # status line points at where fetching lives now
