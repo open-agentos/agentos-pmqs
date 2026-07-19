@@ -157,9 +157,13 @@ def _apply_product_switcher(src: str, db: Any, workspace_slug: str | None) -> st
 
 
 _IDENTITY_RE = re.compile(r"(<!-- IDENTITY -->)(.*?)(<!-- /IDENTITY -->)", re.DOTALL)
+# The Settings link on the identity block. Account settings stays unprefixed, but we
+# tag it with ?ctx=<slug> so leaving Settings returns you to the product you were in,
+# not the default one. ctx scopes nothing server-side except the rail's back-links.
+_IDENTITY_HREF_RE = re.compile(r'(<a class="org" id="identity-block" href=")[^"]*(")')
 
 
-def _apply_identity(src: str, db: Any) -> str:
+def _apply_identity(src: str, db: Any, workspace_slug: str | None = None) -> str:
     """Splice the acting Member's name into the rail's identity block (#91).
 
     The block used to be a string literal in the template while a real Member row sat
@@ -173,6 +177,11 @@ def _apply_identity(src: str, db: Any) -> str:
     from pmqs import members as members_repo
     from pmqs.models import Member
 
+    # Preserve the current product across a Settings visit (see _IDENTITY_HREF_RE).
+    if workspace_slug:
+        href = f"/settings?ctx={workspace_slug}"
+        src = _IDENTITY_HREF_RE.sub(lambda m: f"{m.group(1)}{href}{m.group(2)}", src, count=1)
+
     member = db.get(Member, members_repo.current_member_id(db))
     if member is None:
         return src
@@ -184,7 +193,7 @@ def _apply_identity(src: str, db: Any) -> str:
 def _apply_rail(src: str, db: Any, workspace_slug: str | None) -> str:
     """The rail's two db-backed regions. Every render path draws the same rail, so they
     splice together rather than each caller remembering both."""
-    return _apply_identity(_apply_product_switcher(src, db, workspace_slug), db)
+    return _apply_identity(_apply_product_switcher(src, db, workspace_slug), db, workspace_slug)
 
 
 def _load_template(template_path=None) -> str:
@@ -1409,15 +1418,21 @@ def _product_news_status_html(db: Any, product: Any) -> str:
     return f'<div class="set-status">{"<br>".join(rows)}</div>{preview}'
 
 
-def _settings_sections(db: Any, prefix: str = "") -> str:
+def _settings_sections(db: Any, prefix: str = "", ctx_slug: str | None = None) -> str:
     """ACCOUNT sections. The API key is NEVER echoed back: shown masked.
 
     The watchlist, product profile and lens weights are NOT here -- they belong to a
     Product and live in _product_settings_sections (#98).
+
+    `ctx_slug` (optional): the product the PM was in when they opened Settings. It's
+    appended to each form's action (?ctx=<slug>) so that saving a section keeps the
+    rail pointed at that product instead of dropping back to the default one.
     """
     from pmqs import members as members_repo
     from pmqs import settings as settings_mod
     from pmqs.models import Member
+
+    ctx = f"?ctx={ctx_slug}" if ctx_slug else ""
 
     cfg = settings_mod.get_llm(db)
     key_display = "\u2022" * 8 + " (stored)" if cfg.get("api_key_raw") else html.escape(cfg.get("api_key_ref") or "")
@@ -1427,7 +1442,7 @@ def _settings_sections(db: Any, prefix: str = "") -> str:
     member = db.get(Member, members_repo.current_member_id(db))
     display_name = html.escape(member.display_name if member else "")
 
-    you = f"""<form method="post" action="/settings">
+    you = f"""<form method="post" action="/settings{ctx}">
 <div class="set-section"><h2>You</h2>
 <div class="set-scope">Your name, your model, your key. Applies to every product.</div>
 {_set_field("Display name", "display_name", display_name, placeholder="You",
@@ -1442,7 +1457,7 @@ def _settings_sections(db: Any, prefix: str = "") -> str:
 <button class="set-btn" type="submit">Save</button>
 </div></form>"""
 
-    news_section = f"""<form method="post" action="/settings/news">
+    news_section = f"""<form method="post" action="/settings/news{ctx}">
 <div class="set-section"><h2>News</h2>
 <div class="set-scope">Your Brave key and throttles. Each product's watchlist lives in that product's settings.</div>
 {_set_checkbox("Ingest news", "news_enabled", news.get("enabled", True))}
@@ -1462,7 +1477,7 @@ def _settings_sections(db: Any, prefix: str = "") -> str:
 <button class="set-btn" type="submit">Save</button>
 </div></form>"""
 
-    advanced = f"""<form method="post" action="/settings/advanced">
+    advanced = f"""<form method="post" action="/settings/advanced{ctx}">
 <div class="set-section"><h2>Advanced</h2>
 <div class="set-scope">Rarely needs changing.</div>
 {_set_field("Context feed budget (characters)", "char_budget",
@@ -1486,7 +1501,8 @@ def render_settings(db: Any, template_path: Path | None = None, *,
     The API key is NEVER echoed back: shown masked. See _settings_sections.
     """
     return _render_settings_view(
-        db, _settings_sections(db), template_path=template_path, workspace_slug=workspace_slug
+        db, _settings_sections(db, ctx_slug=workspace_slug), template_path=template_path,
+        workspace_slug=workspace_slug
     )
 
 

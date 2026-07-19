@@ -12,7 +12,7 @@ else in the app.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session as OrmSession
 
@@ -29,12 +29,28 @@ def _not_found(slug: str) -> HTMLResponse:
     return HTMLResponse(render_error(f"No such product workspace: {slug}", 404), status_code=404)
 
 
+def _ctx_slug(db: OrmSession, ctx: str | None) -> str | None:
+    """The product to keep the rail pointed at while in ACCOUNT settings.
+
+    Account settings scopes to no product, but we remember which product the PM came
+    from (?ctx=<slug>) so leaving Settings returns them there, not to the default. A
+    stale/unknown slug is dropped rather than trusted -- it would only mislead the rail.
+    """
+    if ctx and products.get_product_by_slug(db, ctx):
+        return ctx
+    return None
+
+
+def _account_dest(slug: str | None) -> str:
+    return f"/settings?ctx={slug}" if slug else "/settings"
+
+
 # --------------------------------------------------------------------------- account
 
 
 @router.get("/settings", response_class=HTMLResponse)
-def settings_page(db: OrmSession = Depends(get_session)):
-    return HTMLResponse(render_settings(db))
+def settings_page(ctx: str | None = Query(default=None), db: OrmSession = Depends(get_session)):
+    return HTMLResponse(render_settings(db, workspace_slug=_ctx_slug(db, ctx)))
 
 
 @router.post("/settings")
@@ -45,6 +61,7 @@ def save_settings(
     api_key_ref: str = Form(default=""),
     api_key_raw: str = Form(default=""),
     base_url: str = Form(default=""),
+    ctx: str | None = Query(default=None),
     db: OrmSession = Depends(get_session),
 ):
     if display_name:
@@ -61,7 +78,7 @@ def save_settings(
         db, provider=provider, model=model,
         api_key_ref=api_key_ref, api_key_raw=api_key_raw, base_url=base_url,
     )
-    return RedirectResponse(url="/settings", status_code=303)
+    return RedirectResponse(url=_account_dest(_ctx_slug(db, ctx)), status_code=303)
 
 
 @router.post("/settings/news")
@@ -73,6 +90,7 @@ def save_news_settings(
     freshness: str = Form(default="pw"),
     top_n: str = Form(default="3"),
     min_relevance: str = Form(default="0.5"),
+    ctx: str | None = Query(default=None),
     db: OrmSession = Depends(get_session),
 ):
     """The Brave key and the throttles. The watchlist is the Product's (#96)."""
@@ -99,12 +117,13 @@ def save_news_settings(
         top_n=_num(top_n, int, "top_n"),
         min_relevance=_num(min_relevance, float, "min_relevance"),
     )
-    return RedirectResponse(url="/settings", status_code=303)
+    return RedirectResponse(url=_account_dest(_ctx_slug(db, ctx)), status_code=303)
 
 
 @router.post("/settings/advanced")
 def save_advanced_settings(
     char_budget: str = Form(default=""),
+    ctx: str | None = Query(default=None),
     db: OrmSession = Depends(get_session),
 ):
     """The context-feed budget. The store has existed since Phase 3 with no caller."""
@@ -112,7 +131,7 @@ def save_advanced_settings(
         settings_mod.set_context_budget(db, int(char_budget))
     except (TypeError, ValueError):
         pass  # unparseable -> keep the current value rather than zeroing the feed
-    return RedirectResponse(url="/settings", status_code=303)
+    return RedirectResponse(url=_account_dest(_ctx_slug(db, ctx)), status_code=303)
 
 
 # --------------------------------------------------------------------------- product
