@@ -32,15 +32,27 @@ def push_question_to_issue(
     question: Any,
     *,
     client: AgentOSClient | None = None,
+    tracker: Any | None = None,
     labels: list[str] | None = None,
     session_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a real Issue, record the outcome, promote the Question.
 
+    Routed through the tracker seam (Wave 3): `tracker` wins if given; else `client`
+    (a GitHub client, used in tests) is wrapped as GitHub; else the account's chosen
+    tracker is resolved. GitHub is the only live tracker today.
+
     Returns {"outcome_id", "github_ref", "number"}.
     """
-    client = client or AgentOSClient()
-    created = client.create_issue(title=question.title, body=_question_body(question), labels=labels)
+    from pmqs.outcomes.tracker import get_tracker
+
+    if tracker is None:
+        tracker = get_tracker(
+            db, product_id=getattr(question, "product_id", None), client=client
+        )
+    created = tracker.create_issue(
+        title=question.title, body=_question_body(question), labels=labels
+    )
     github_ref = created["url"]
 
     outcome = repository.create_outcome(

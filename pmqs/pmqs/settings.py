@@ -120,6 +120,29 @@ def set_context_budget(db: OrmSession, char_budget: int) -> None:
     _set(db, _CONTEXT_KEY, {"char_budget": int(char_budget)})
 
 
+# --- Issue tracker choice (Wave 3) -------------------------------------------------
+# Account-level: which tracker an Issue outcome is filed to. Default GitHub; Jira is a
+# stub. See outcomes/tracker.py for why this is account- rather than product-scoped.
+_TRACKER_KEY = "tracker"
+_TRACKER_DEFAULT = "github"
+
+
+def get_tracker(db: OrmSession) -> str:
+    stored = _get(db, _TRACKER_KEY) or {}
+    kind = stored.get("kind", _TRACKER_DEFAULT)
+    from pmqs.outcomes.tracker import VALID_TRACKERS
+
+    return kind if kind in VALID_TRACKERS else _TRACKER_DEFAULT
+
+
+def set_tracker(db: OrmSession, kind: str) -> None:
+    from pmqs.outcomes.tracker import VALID_TRACKERS
+
+    if kind not in VALID_TRACKERS:
+        raise ValueError(f"unknown tracker: {kind}")
+    _set(db, _TRACKER_KEY, {"kind": kind})
+
+
 def get_news_config(db: OrmSession) -> dict[str, Any]:
     """Account-wide news settings, merged over defaults. The watchlist and profile are
     NOT here -- see products.get_news_config (#96)."""

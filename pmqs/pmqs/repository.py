@@ -429,6 +429,10 @@ def outcome_payload(outcome: Outcome) -> dict[str, Any]:
         return {}
 
 
+def get_outcome(db: OrmSession, outcome_id: str) -> Outcome | None:
+    return db.get(Outcome, outcome_id)
+
+
 # --- News items (Phase 4 raw staging store) ---
 def create_news_item(
     db: OrmSession,

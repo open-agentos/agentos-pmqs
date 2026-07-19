@@ -80,3 +80,13 @@ def test_draft_tab_and_draft_first_wiring(db):
     assert "function pmqsRenderDraft" in out
     assert "function pmqsCommitOutcome" in out
     assert "function addOutcome(type){ pmqsDraft(type); }" in out
+
+
+def test_meeting_draft_offers_calendar_field_and_export_receipt(db):
+    # Wave 3: meetings get an optional calendar-link input; the receipt offers export.
+    sess = repository.open_session(db, topic="wave3 wiring")
+    out = render_workspace(sess, [], [], [], None)
+    assert "Calendar link (optional)" in out
+    assert "calendar_link" in out
+    assert "export_url" in out
+    assert "Download .md" in out
