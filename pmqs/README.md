@@ -1,5 +1,7 @@
 # PMQs
 
+[![Tests](https://github.com/open-agentos/agentos-pmqs/actions/workflows/tests.yml/badge.svg)](https://github.com/open-agentos/agentos-pmqs/actions/workflows/tests.yml)
+
 > ## ⚠️ STANDING HAZARD — READ FIRST
 > **Never run `agentos apply` or `agentos upgrade` against `agentos-pmqs`.**
 > The adopt→upgrade path has an unfixed data-loss bug (upstream issue #47) that
