@@ -168,3 +168,41 @@ def test_outcome_commit_emits_event(client):
     client.post(f"/workspace/{sid}/outcome", data={"type": "document", "title": "Drift brief"})
     view = client.get(f"/workspace/{sid}")
     assert "Document drafted — Drift brief" in view.text
+
+
+AJAX = {"X-PMQS-Ajax": "1"}
+
+
+def test_message_ajax_returns_assistant_html(client):
+    r = client.post("/workspace/open", data={}, follow_redirects=False)
+    sid = r.headers["location"].split("/")[-1]
+    out = client.post(f"/workspace/{sid}/message", data={"content": "hi"}, headers=AJAX)
+    assert out.status_code == 200
+    assert "assistant_html" in out.json()
+    assert 'class="msg' in out.json()["assistant_html"]
+
+
+def test_message_without_ajax_still_redirects(client):
+    r = client.post("/workspace/open", data={}, follow_redirects=False)
+    sid = r.headers["location"].split("/")[-1]
+    out = client.post(f"/workspace/{sid}/message", data={"content": "hi"}, follow_redirects=False)
+    assert out.status_code == 303   # legacy path preserved
+
+
+def test_run_lenses_ajax_returns_tab_and_event(client):
+    r = client.post("/workspace/open", data={}, follow_redirects=False)
+    sid = r.headers["location"].split("/")[-1]
+    out = client.post(f"/workspace/{sid}/run-lenses", headers=AJAX)
+    j = out.json()
+    assert j["tab"] == "proposed"
+    assert "Ran 8-lens pass" in j["event_html"]
+    assert "tab_html" in j and j["tab_count"] == 0   # LLM off → no proposed
+
+
+def test_position_doc_ajax_returns_doc_tab(client):
+    r = client.post("/workspace/open", data={}, follow_redirects=False)
+    sid = r.headers["location"].split("/")[-1]
+    out = client.post(f"/workspace/{sid}/position-doc", headers=AJAX)
+    j = out.json()
+    assert j["tab"] == "doc"
+    assert "tab_html" in j   # no question on an ad-hoc session → empty-state html, still returned

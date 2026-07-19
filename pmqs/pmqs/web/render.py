@@ -591,17 +591,10 @@ def _initials(label: str) -> str:
     return "".join(w[0] for w in words[:2]).upper() or "?"
 
 
-def _event_html(m: Any) -> str:
-    """An activity-log line in the conversation (role='event'). Quiet, tool-call styled,
-    and click-to-open the matching artifact tab when the event carries one. Reuses
-    existing tokens — no new palette — so the brand drift guards stay green."""
-    import json as _json
-    try:
-        payload = _json.loads(getattr(m, "content", "") or "{}")
-    except (ValueError, TypeError):
-        payload = {}
-    label = payload.get("label") or "Activity"
-    tab = payload.get("tab")
+def render_event_line(label: str, tab: str | None = None) -> str:
+    """The activity-log line markup for a label (+ optional artifact tab). Shared by the
+    server-rendered conversation and the async endpoints (Wave 2), so a live-appended
+    event looks identical to one rendered on load."""
     attrs = ""
     cls = "msg event"
     if tab:
@@ -612,6 +605,32 @@ def _event_html(m: Any) -> str:
         f'<div class="event-line">{html.escape(str(label))}</div>'
         f"</div>"
     )
+
+
+def _event_html(m: Any) -> str:
+    """An activity-log line in the conversation (role='event'). Quiet, tool-call styled,
+    and click-to-open the matching artifact tab when the event carries one."""
+    import json as _json
+    try:
+        payload = _json.loads(getattr(m, "content", "") or "{}")
+    except (ValueError, TypeError):
+        payload = {}
+    return render_event_line(payload.get("label") or "Activity", payload.get("tab"))
+
+
+def render_message_html(m: Any) -> str:
+    """Public wrapper: render one conversation message (used by async /message)."""
+    return _msg_html(m)
+
+
+def render_proposed_tab_html(proposed: list[Any], session_id: str = "") -> str:
+    """Public wrapper: the Proposed-questions tab inner HTML (async /run-lenses)."""
+    return _proposed_html(proposed, session_id)
+
+
+def render_position_doc_tab_html(doc: dict | None) -> str:
+    """Public wrapper: the Position-document tab inner HTML (async /position-doc)."""
+    return _position_doc_html(doc)
 
 
 def _msg_html(m: Any) -> str:
@@ -768,7 +787,7 @@ def render_workspace(
     src = _apply_tab_counts(src, {"evidence": len(evidence), "proposed": len(proposed)})
 
     src, n = _STATS_RE.subn(
-        lambda m: f"{m.group(1)}<span>{n_exchanges}</span> exchanges{m.group(2)}", src
+        lambda m: f'{m.group(1)}<span id="sess-count">{n_exchanges}</span> exchanges{m.group(2)}', src
     )
     if n == 0:
         raise RuntimeError("Could not locate Workspace region: session-stats")
@@ -779,15 +798,91 @@ def render_workspace(
     ws_js = _live_js_common() + f"""
 <script>
 var PMQS_SID = {sid!r};
-// Send a chat message to the real war-room endpoint (LLM probe reply).
+
+// --- Wave 2: async actions with a live activity log + busy indicator ---
+function pmqsAjax(action, fields){{
+  var body = new URLSearchParams();
+  for (var k in (fields||{{}})) body.set(k, fields[k]);
+  return fetch(action, {{
+    method:'POST',
+    headers:{{'Content-Type':'application/x-www-form-urlencoded','X-PMQS-Ajax':'1'}},
+    body: body.toString()
+  }}).then(function(r){{ return r.json().then(function(j){{ return {{ok:r.ok, j:j}}; }}); }});
+}}
+function pmqsConvoScroll(){{ var s=document.getElementById('convo-scroll'); if(s) s.scrollTop=s.scrollHeight; }}
+function pmqsAppendHTML(htmlStr){{
+  var s=document.getElementById('convo-scroll'); if(!s||!htmlStr) return null;
+  var t=document.createElement('template'); t.innerHTML=String(htmlStr).trim();
+  var node=t.content.firstChild; if(node){{ s.appendChild(node); pmqsConvoScroll(); }}
+  return node;
+}}
+function pmqsBusy(on){{
+  var pane=document.querySelector('.convo-pane'); if(pane) pane.classList.toggle('convo-busy', !!on);
+}}
+// A transient busy line in the conversation; returns the node so it can be replaced.
+function pmqsBusyLine(text){{
+  return pmqsAppendHTML('<div class="msg event"><div class="event-line"><span class="event-spinner"></span>'+text+'</div></div>');
+}}
+function pmqsRefreshTab(tab, html, count){{
+  if(!tab) return;
+  var pane=document.getElementById('tab-'+tab); if(pane && html!=null) pane.innerHTML=html;
+  if(count!=null){{
+    var lbl=document.querySelector('.a-tab[data-tab="'+tab+'"]');
+    if(lbl){{ lbl.textContent = lbl.textContent.replace(/\\s*\\(\\d+\\)\\s*$/, '') + ' (' + count + ')'; }}
+  }}
+}}
+
 function sendMsg(){{
   var input = document.getElementById('chat-input');
   var val = (input && input.value || '').trim();
   if(!val) return;
-  pmqsPost('/workspace/'+PMQS_SID+'/message', {{content: val}});
+  // Optimistic PM bubble (built via DOM, textContent = XSS-safe), then a busy line.
+  var s=document.getElementById('convo-scroll');
+  if(s){{
+    var wrap=document.createElement('div'); wrap.className='msg pm';
+    var av=document.createElement('div'); av.className='msg-avatar'; av.textContent='You';
+    var col=document.createElement('div'); col.className='msg-col';
+    var lab=document.createElement('div'); lab.className='msg-label'; lab.textContent='You';
+    var bod=document.createElement('div'); bod.className='msg-body pm-bubble'; bod.textContent=val;
+    col.appendChild(lab); col.appendChild(bod); wrap.appendChild(av); wrap.appendChild(col);
+    s.appendChild(wrap); pmqsConvoScroll();
+  }}
+  input.value=''; pmqsBusy(true);
+  var busy = pmqsBusyLine('War-room is thinking…');
+  pmqsAjax('/workspace/'+PMQS_SID+'/message', {{content: val}})
+    .then(function(res){{
+      if(busy) busy.remove();
+      if(res.ok && res.j.assistant_html) pmqsAppendHTML(res.j.assistant_html);
+      else pmqsAppendHTML('<div class="msg event"><div class="event-line">✕ message failed</div></div>');
+      var c=document.getElementById('sess-count'); if(c) c.textContent=(parseInt(c.textContent||'0',10)||0)+1;
+    }})
+    .catch(function(){{ if(busy) busy.remove(); pmqsAppendHTML('<div class="msg event"><div class="event-line">✕ network error</div></div>'); }})
+    .finally(function(){{ pmqsBusy(false); }});
 }}
-function pmqsRunLenses(){{ pmqsPost('/workspace/'+PMQS_SID+'/run-lenses', {{}}); }}
-function pmqsGenDoc(){{ pmqsPost('/workspace/'+PMQS_SID+'/position-doc', {{}}); }}
+function pmqsRunLenses(){{
+  pmqsBusy(true);
+  var busy = pmqsBusyLine('Running 8-lens pass…');
+  pmqsAjax('/workspace/'+PMQS_SID+'/run-lenses', {{}})
+    .then(function(res){{
+      if(busy) busy.remove();
+      if(res.ok){{ pmqsAppendHTML(res.j.event_html); pmqsRefreshTab(res.j.tab, res.j.tab_html, res.j.tab_count); }}
+      else pmqsAppendHTML('<div class="msg event"><div class="event-line">✕ lens pass failed</div></div>');
+    }})
+    .catch(function(){{ if(busy) busy.remove(); }})
+    .finally(function(){{ pmqsBusy(false); }});
+}}
+function pmqsGenDoc(){{
+  pmqsBusy(true);
+  var busy = pmqsBusyLine('Generating position document…');
+  pmqsAjax('/workspace/'+PMQS_SID+'/position-doc', {{}})
+    .then(function(res){{
+      if(busy) busy.remove();
+      if(res.ok){{ if(res.j.event_html) pmqsAppendHTML(res.j.event_html); pmqsRefreshTab(res.j.tab, res.j.tab_html, null); }}
+      else pmqsAppendHTML('<div class="msg event"><div class="event-line">✕ generation failed</div></div>');
+    }})
+    .catch(function(){{ if(busy) busy.remove(); }})
+    .finally(function(){{ pmqsBusy(false); }});
+}}
 function pmqsAddProposed(qid, btn){{ pmqsPost('/workspace/'+PMQS_SID+'/proposed/'+qid+'/add', {{}}); }}
 // Outcome bar → real typed-outcome endpoint, rendered INLINE (no navigation).
 // Wave 1: this replaces the old full-page form submit that dumped the PM on a raw
