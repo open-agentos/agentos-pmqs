@@ -243,3 +243,70 @@ def test_same_story_across_two_products_is_lost_to_the_second(db, monkeypatch):
     _fake_llm(monkeypatch)
     qs = relevance.promote_relevant(db)
     assert [q.product_id for q in qs] == [a.id]  # b gets nothing
+
+
+# --- chunking + diagnostics (large watchlists must not silently fail) ---
+
+def test_large_batch_is_chunked_not_one_giant_call(db, monkeypatch):
+    """A 60-item batch judged in one call overflows max_tokens and returns truncated
+    JSON. It must be split into multiple calls (25/chunk => 3 calls here)."""
+    p = products.get_or_create_default_product(db)
+    _seed(db, 60, product=p)
+    _profile(db, "P")
+    settings.set_news_config(db, top_n=3, min_relevance=0.5)
+    calls = []
+
+    def fake(system, user, **kw):
+        calls.append(user)
+        return {"items": []}  # nothing relevant, but the calls must have happened
+
+    monkeypatch.setattr(relevance.llm, "is_enabled", lambda: True)
+    monkeypatch.setattr(relevance.llm, "complete_json", fake)
+
+    qs, diag = relevance.promote_relevant_reported(db)
+    assert qs == []
+    assert len(calls) == 3            # 60 items / 25 per chunk => 3 calls
+    assert diag.judged == 60          # all judged, even though none promoted
+    assert repository.list_news_items(db, unprocessed_only=True) == []  # all marked processed
+
+
+def test_diag_reports_top_score_when_nothing_clears(db, monkeypatch):
+    p = products.get_or_create_default_product(db)
+    _seed(db, 2, product=p)
+    _profile(db, "P")
+    settings.set_news_config(db, top_n=3, min_relevance=0.8)
+    monkeypatch.setattr(relevance.llm, "is_enabled", lambda: True)
+    monkeypatch.setattr(relevance.llm, "complete_json", lambda s, u, **k: {"items": [
+        {"index": 0, "relevance": 0.42, "title": "x", "description": "y"},
+        {"index": 1, "relevance": 0.55, "title": "z", "description": "w"},
+    ]})
+    qs, diag = relevance.promote_relevant_reported(db)
+    assert qs == []
+    assert diag.judged == 2
+    assert diag.top_relevance == 0.55   # highest seen, still below the 0.8 bar
+
+
+def test_diag_flags_missing_profile(db, monkeypatch):
+    p = products.get_or_create_default_product(db)
+    _seed(db, 1, product=p)  # no profile set
+    monkeypatch.setattr(relevance.llm, "is_enabled", lambda: True)
+    monkeypatch.setattr(relevance.llm, "complete_json", lambda s, u, **k: {"items": []})
+    _qs, diag = relevance.promote_relevant_reported(db)
+    assert diag.products_with_items == 1
+    assert diag.products_missing_profile == 1
+
+
+def test_diag_records_llm_error_and_leaves_items_for_retry(db, monkeypatch):
+    p = products.get_or_create_default_product(db)
+    _seed(db, 2, product=p)
+    _profile(db, "P")
+    monkeypatch.setattr(relevance.llm, "is_enabled", lambda: True)
+    def boom(*a, **k):
+        raise ValueError("Expecting value: line 1 column 1")
+    monkeypatch.setattr(relevance.llm, "complete_json", boom)
+    qs, diag = relevance.promote_relevant_reported(db)
+    assert qs == []
+    assert diag.judged == 0
+    assert "Expecting value" in diag.llm_error
+    # failed chunk's items are NOT marked processed -> a later Refresh retries them
+    assert len(repository.list_news_items(db, unprocessed_only=True)) == 2

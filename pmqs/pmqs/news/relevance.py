@@ -17,6 +17,7 @@ nothing, no crash.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.orm import Session as OrmSession
@@ -56,6 +57,49 @@ def _citation(item: Any) -> dict[str, Any]:
     }
 
 
+_CHUNK = 25          # items judged per LLM call (a 100+ item batch in one call truncates)
+_MAX_JUDGE = 200     # per product per run; the rest wait for the next Refresh
+
+
+@dataclass
+class NewsDiag:
+    """Why the relevance pass produced what it did — enough to tell a legitimate
+    "nothing relevant" apart from a broken LLM call or a product with no profile to
+    judge against. Aggregated across products for one Refresh."""
+
+    judged: int = 0                       # raw items actually scored (0 if all calls failed)
+    promoted: int = 0
+    top_relevance: float | None = None    # highest score seen, even below the bar
+    llm_error: str = ""                   # first chunk error, if any
+    products_with_items: int = 0
+    products_missing_profile: int = 0     # of those with items, how many had no profile
+
+
+def promote_relevant_reported(db: OrmSession, config: dict[str, Any] | None = None) -> tuple[list, NewsDiag]:
+    """promote_relevant + a NewsDiag explaining the outcome. This is what the Inbox
+    Refresh uses so its banner can say WHY zero, instead of a flat "nothing relevant"
+    that also hides LLM failures and missing profiles."""
+    diag = NewsDiag()
+    if not llm.is_enabled():
+        return [], diag
+    cfg = config or settings.get_news_config(db)
+    promoted: list = []
+    for product in products.list_products(db):
+        qs, pd = _promote_for_product(db, product, cfg)
+        promoted.extend(qs)
+        if pd["had_items"]:
+            diag.products_with_items += 1
+            if pd["profile_missing"]:
+                diag.products_missing_profile += 1
+        diag.judged += pd["judged"]
+        if pd["top"] is not None:
+            diag.top_relevance = pd["top"] if diag.top_relevance is None else max(diag.top_relevance, pd["top"])
+        if pd["llm_error"] and not diag.llm_error:
+            diag.llm_error = pd["llm_error"]
+    diag.promoted = len(promoted)
+    return promoted, diag
+
+
 def promote_relevant(db: OrmSession, config: dict[str, Any] | None = None) -> list:
     """Run the relevance pass, once per Product, over that product's unprocessed items.
 
@@ -66,68 +110,87 @@ def promote_relevant(db: OrmSession, config: dict[str, Any] | None = None) -> li
     ONE global profile, and created Questions with no product_id at all -- which meant
     a news question could land in the wrong product's inbox. It now loops.
     """
-    if not llm.is_enabled():
-        return []
-    cfg = config or settings.get_news_config(db)
-    promoted: list = []
-    for product in products.list_products(db):
-        promoted.extend(_promote_for_product(db, product, cfg))
-    return promoted
+    return promote_relevant_reported(db, config)[0]
 
 
-def _promote_for_product(db: OrmSession, product, cfg: dict[str, Any]) -> list:
-    """One relevance pass for one Product: its items, its profile, its inbox."""
+def _promote_for_product(db: OrmSession, product, cfg: dict[str, Any]) -> tuple[list, dict[str, Any]]:
+    """One relevance pass for one Product: its items, its profile, its inbox.
+
+    Returns (questions, diag). Items are judged in chunks of _CHUNK (a single 100+ item
+    call truncates its JSON and silently promotes nothing); only chunks that actually
+    ran are marked processed, so an LLM failure leaves its items for the next Refresh.
+    """
     raw_items = repository.list_news_items(db, unprocessed_only=True, product_id=product.id)
+    _empty = {"had_items": False, "judged": 0, "promoted": 0, "top": None,
+              "llm_error": "", "profile_missing": False}
     if not raw_items:
-        return []
+        return [], _empty
 
     product_cfg = products.get_news_config(db, product)
-    profile = product_cfg.get("product_profile") or "(no product profile configured)"
+    raw_profile = product_cfg.get("product_profile")
+    profile = raw_profile or "(no product profile configured)"
+    profile_missing = not (raw_profile or "").strip()
     top_n = cfg.get("top_n", 3)
     threshold = cfg.get("min_relevance", 0.5)
 
-    # Build the batched prompt: numbered items so the LLM can reference by index.
-    lines = []
-    for idx, it in enumerate(raw_items):
-        lines.append(
-            f"[{idx}] source={it.source_label} | title={it.title} | summary={(it.summary or '')[:300]}"
+    context = context_feed.build_context_block(db, product_id=product.id)
+    to_judge = raw_items[:_MAX_JUDGE]
+
+    judged_items: list = []   # items from chunks that actually ran -> mark processed
+    scored: list = []         # (rel, item, entry) at or above threshold
+    top_seen: float | None = None
+    llm_error = ""
+
+    # Judge in chunks: one 100+ item call overflows max_tokens and returns truncated
+    # JSON, which json.loads rejects -> the whole batch silently promotes nothing.
+    for start in range(0, len(to_judge), _CHUNK):
+        chunk = to_judge[start:start + _CHUNK]
+        lines = [
+            f"[{i}] source={it.source_label} | title={it.title} | summary={(it.summary or '')[:300]}"
+            for i, it in enumerate(chunk)
+        ]
+        user = context_feed.augment(
+            f"PRODUCT PROFILE:\n{profile}\n\nRAW NEWS ITEMS:\n" + "\n".join(lines), context
         )
-    user = (
-        f"PRODUCT PROFILE:\n{profile}\n\nRAW NEWS ITEMS:\n" + "\n".join(lines)
-    )
-    user = context_feed.augment(
-        user, context_feed.build_context_block(db, product_id=product.id)
-    )
-
-    try:
-        result = llm.complete_json(_SYSTEM, user, settings_cfg=settings.get_llm(db), max_tokens=1500)
-    except Exception as exc:
-        log.warning("news relevance pass failed for %s: %s", product.full_name, exc)
-        return []
-
-    scored = []
-    for entry in (result.get("items", []) if isinstance(result, dict) else []):
         try:
-            idx = int(entry.get("index"))
-            rel = float(entry.get("relevance", 0.0))
-        except (TypeError, ValueError):
+            result = llm.complete_json(_SYSTEM, user, settings_cfg=settings.get_llm(db), max_tokens=1500)
+        except Exception as exc:  # this chunk failed — leave its items unprocessed for a retry
+            log.warning("news relevance pass failed for %s: %s", product.full_name, exc)
+            llm_error = llm_error or str(exc)
             continue
-        if idx < 0 or idx >= len(raw_items):
-            continue
-        if rel < threshold:
-            continue
-        if not entry.get("title"):
-            continue
-        scored.append((rel, raw_items[idx], entry))
+        judged_items.extend(chunk)
+        for entry in (result.get("items", []) if isinstance(result, dict) else []):
+            try:
+                idx = int(entry.get("index"))
+                rel = float(entry.get("relevance", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if idx < 0 or idx >= len(chunk):
+                continue
+            top_seen = rel if top_seen is None else max(top_seen, rel)
+            if rel < threshold or not entry.get("title"):
+                continue
+            scored.append((rel, chunk[idx], entry))
 
-    # Highest relevance first, cap at top_n. top_n is per product per run.
+    # Highest relevance first, cap at top_n (per product per run).
     scored.sort(key=lambda t: t[0], reverse=True)
     scored = scored[:top_n]
 
+    diag = {
+        "had_items": True,
+        "judged": len(judged_items),
+        "promoted": 0,
+        "top": top_seen,
+        "llm_error": llm_error,
+        "profile_missing": profile_missing,
+    }
+
+    # Mark only the chunks that ran (a total failure marks nothing, so a retry re-judges).
+    if judged_items:
+        repository.mark_news_processed(db, [it.id for it in judged_items])
+
     if not scored:
-        # Nothing cleared the bar. Still mark the batch processed so it isn't re-judged.
-        repository.mark_news_processed(db, [it.id for it in raw_items])
-        return []
+        return [], diag
 
     candidates = []
     for rel, item, entry in scored:
@@ -162,6 +225,5 @@ def _promote_for_product(db: OrmSession, product, cfg: dict[str, Any]) -> list:
         repository.set_question_score(db, q.id, score, dims)
         questions.append(q)
 
-    # Mark ALL raw items in this batch processed (judged, whether or not promoted).
-    repository.mark_news_processed(db, [it.id for it in raw_items])
-    return questions
+    diag["promoted"] = len(questions)
+    return questions, diag

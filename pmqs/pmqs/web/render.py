@@ -531,6 +531,8 @@ _NEWS_LINES = {
     "no_products": ("warn", "News: no products configured."),
     "no_watchlist": ("warn", "News: no watchlist terms — add companies/keywords in a product's Settings."),
     "fetched_llm_off": ("warn", "News: {detail} — set an LLM provider in Settings."),
+    "no_profile": ("warn", "News: no product profile set — add one in the product's Settings so news can be judged against it."),
+    "news_llm_error": ("warn", "News: the relevance check couldn't run — {detail}."),
     "nothing_new": ("ok", "News: no new stories for your watchlist."),
     "nothing_relevant": ("ok", "News: {detail}."),
     "error": ("warn", "News: fetch failed — {detail}."),
