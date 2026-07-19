@@ -103,7 +103,7 @@ def test_tab_panes_and_order_survive(db):
     """_TAB_DOC_RE / _TAB_EVID_RE / _TAB_PROP_RE anchor on these ids and their order."""
     out = _render(db, n_evidence=2, n_proposed=1)
     order = [m.group(1) for m in re.finditer(r'<div id="(tab-[a-z]+)"', out)]
-    assert order == ["tab-doc", "tab-chart", "tab-evidence", "tab-proposed"]
+    assert order == ["tab-doc", "tab-chart", "tab-evidence", "tab-proposed", "tab-draft"]
 
 
 def test_position_doc_still_splices_real_data(db):

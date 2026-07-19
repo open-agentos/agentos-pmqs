@@ -37,7 +37,8 @@ in groups 1 and 3 stops matching, the splice fails.
 | `_CONVO_RE` | `<div class="convo-scroll">` … `<div class="convo-input">` | rename either class, or reorder them |
 | `_TAB_DOC_RE` | `<div id="tab-doc">` … `<div id="tab-chart"` | rename either `id`, or reorder the tab panes |
 | `_TAB_EVID_RE` | `<div id="tab-evidence">` … `<div id="tab-proposed"` | as above |
-| `_TAB_PROP_RE` | `<div id="tab-proposed">` … 4 closing `</div>`s | as above, **or change nesting depth after the last tab** |
+| `_TAB_PROP_RE` | `<div id="tab-proposed">` … `<div id="tab-draft"` | rename either `id`, or reorder the tab panes |
+| `tab-draft` (no splice) | client-populated Draft pane; must stay the **last** artifact pane, so the trailing `</div>`s that close `.artifact-body`/`.artifact-pane` follow it | move it out of last position, or server-splice into it without adding a regex |
 | `_STATS_RE` | `<span class="session-stats">` | rename `.session-stats` or change its tag |
 | `_tab_label_re(t)` | `data-tab="{t}"` … `</div>` | change a tab from a `<div>`, or put markup inside a tab label (#108 writes the item count into it as plain text) |
 | `_OUTCOMES_LIST_RE` | `<div id="outcomes-list">` … 5 closing `</div>`s | rename the `id`, **or change nesting depth after the ledger** |
@@ -46,10 +47,11 @@ in groups 1 and 3 stops matching, the splice fails.
 | `_IDENTITY_RE` | `<!-- IDENTITY -->` … `<!-- /IDENTITY -->` | delete either sentinel |
 | `_PS_SETTINGS_RE` | `<a class="ps-item" id="ps-settings" href="…">` | rename the id, or reorder the class/id attributes |
 
-⚠️ **The closing-`</div>` counts in `_TAB_PROP_RE` and `_OUTCOMES_LIST_RE` are
-literal.** Wrapping the artifact pane or the ledger in one extra container div breaks
-them, even though nothing was renamed. This is the most likely accidental break during
-a restyle.
+⚠️ **The closing-`</div>` count in `_OUTCOMES_LIST_RE` is literal.** Wrapping the
+ledger in one extra container div breaks it, even though nothing was renamed. The
+artifact pane's tab regexes now chain id→id (each pane anchored to the next), so
+`tab-draft` must remain the **last** pane — the trailing `</div>`s that close the
+artifact pane follow it, and inserting a pane after it breaks nothing renamed.
 
 ⚠️ **`_OUTCOMES_LIST_RE`'s five `</div>`s reach past the Outcomes view to the closes of
 `#main` and `#app`.** So `#view-outcomes` must stay the **last child of `#main`** — adding

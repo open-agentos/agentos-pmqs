@@ -80,6 +80,26 @@ def push_issue(qid: str, db: OrmSession = Depends(get_session)):
 # repository.create_outcome and reasserted in outcomes/types.py).
 
 
+@router.post("/workspace/{session_id}/draft")
+def draft_outcome(
+    session_id: str,
+    type: str = Form(...),
+    db: OrmSession = Depends(get_session),
+):
+    """Wave 2: draft an outcome of `type` from the session context, editable in the war
+    room's Draft tab. Does NOT persist — a draft becomes an outcome only on confirm
+    (POST .../outcome). Never 500s on the LLM; a degraded stub is still a usable draft.
+    """
+    from pmqs.outcomes.draft import DRAFT_FIELDS, generate_draft
+
+    session = repository.get_session_row(db, session_id)
+    if session is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if type not in DRAFT_FIELDS:
+        return JSONResponse({"error": f"unknown outcome type: {type}"}, status_code=400)
+    return JSONResponse(generate_draft(db, session, type))
+
+
 @router.post("/workspace/{session_id}/outcome")
 def create_typed_outcome(
     session_id: str,

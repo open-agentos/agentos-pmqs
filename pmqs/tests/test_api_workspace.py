@@ -123,3 +123,31 @@ def test_unknown_outcome_type_rejected(client):
     sid = r.headers["location"].split("/")[-1]
     out = client.post(f"/workspace/{sid}/outcome", data={"type": "banana"})
     assert out.status_code == 400
+
+
+def test_draft_endpoint_returns_editable_fields(client):
+    # Wave 2: drafting is generate-not-persist; LLM off → degraded stub, still usable.
+    r = client.post("/workspace/open", data={}, follow_redirects=False)
+    sid = r.headers["location"].split("/")[-1]
+    d = client.post(f"/workspace/{sid}/draft", data={"type": "document"})
+    assert d.status_code == 200
+    j = d.json()
+    assert j["type"] == "document"
+    assert set(j["fields"].keys()) == {"title", "body"}
+    # nothing persisted by drafting
+    from pmqs import repository
+    db = client._session_factory()
+    assert repository.list_outcomes(db) == []
+    db.close()
+
+
+def test_draft_unknown_type_rejected(client):
+    r = client.post("/workspace/open", data={}, follow_redirects=False)
+    sid = r.headers["location"].split("/")[-1]
+    d = client.post(f"/workspace/{sid}/draft", data={"type": "banana"})
+    assert d.status_code == 400
+
+
+def test_draft_missing_session_404(client):
+    d = client.post("/workspace/nope/draft", data={"type": "document"})
+    assert d.status_code == 404
