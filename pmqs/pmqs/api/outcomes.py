@@ -167,6 +167,10 @@ def create_typed_outcome(
             return JSONResponse({"error": str(exc)}, status_code=400)
         # Receipt: tell the war room exactly what was made and where it now lives.
         loc = location_for("issue", github_ref=result.get("github_ref"))
+        repository.add_event(
+            db, session_id, kind="outcome",
+            label=f"▤ Issue filed — {q.title}", ref=result.get("github_ref"),
+        )
         return JSONResponse(
             {"type": "issue", "title": q.title, "location": loc, **result}
         )
@@ -196,6 +200,13 @@ def create_typed_outcome(
     )
     # Receipt: hosted-store outcomes land in the ledger — that is their "where".
     # export_url makes Document/Meeting portable (copy / download .md / open-in-tab).
+    _GLYPH = {"policy": "§", "document": "✎", "meeting": "◷", "question": "?"}
+    _VERB = {"policy": "saved", "document": "drafted", "meeting": "scheduled", "question": "raised"}
+    title_str = display_title(type, payload)
+    repository.add_event(
+        db, session_id, kind="outcome",
+        label=f"{_GLYPH.get(type, '•')} {type.title()} {_VERB.get(type, 'created')} — {title_str}",
+    )
     return JSONResponse({
         "type": type,
         "outcome_id": outcome.id,

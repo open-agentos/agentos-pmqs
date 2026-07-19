@@ -151,3 +151,20 @@ def test_draft_unknown_type_rejected(client):
 def test_draft_missing_session_404(client):
     d = client.post("/workspace/nope/draft", data={"type": "document"})
     assert d.status_code == 404
+
+
+def test_run_lenses_emits_event(client):
+    r = client.post("/workspace/open", data={}, follow_redirects=False)
+    sid = r.headers["location"].split("/")[-1]
+    client.post(f"/workspace/{sid}/run-lenses", follow_redirects=False)
+    view = client.get(f"/workspace/{sid}")
+    assert "Ran 8-lens pass" in view.text          # event rendered in the conversation
+    assert 'class="msg event event-open"' in view.text  # click-to-open proposed tab
+
+
+def test_outcome_commit_emits_event(client):
+    r = client.post("/workspace/open", data={}, follow_redirects=False)
+    sid = r.headers["location"].split("/")[-1]
+    client.post(f"/workspace/{sid}/outcome", data={"type": "document", "title": "Drift brief"})
+    view = client.get(f"/workspace/{sid}")
+    assert "Document drafted — Drift brief" in view.text

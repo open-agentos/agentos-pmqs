@@ -124,6 +124,12 @@ def workspace_run_lenses(session_id: str, db: OrmSession = Depends(get_session))
     if sess is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     produced = lenses.run_session_lenses(db, sess)
+    repository.add_event(
+        db, session_id, kind="lenses",
+        label=f"⟳ Ran 8-lens pass — {len(produced)} proposed question"
+              + ("" if len(produced) == 1 else "s"),
+        tab="proposed",
+    )
     return RedirectResponse(url=f"/workspace/{session_id}", status_code=303)
 
 
@@ -140,6 +146,10 @@ def workspace_position_doc(session_id: str, db: OrmSession = Depends(get_session
             # cite a room the reader isn't allowed to see.
             doc = position_doc.generate(db, q, member_id=members.current_member_id(db))
             repository.set_position_doc(db, session_id, doc)
+            repository.add_event(
+                db, session_id, kind="position_doc",
+                label="✎ Position document generated", tab="doc",
+            )
     return RedirectResponse(url=f"/workspace/{session_id}", status_code=303)
 
 

@@ -345,6 +345,21 @@ textarea.set-input{min-height:64px;}
 .msg-body.pm-bubble{background:var(--bg-active);border:1px solid var(--accent-gold-dim);border-radius:2px 8px 8px 8px;padding:10px 13px;}
 .msg-body.sys-bubble{background:var(--bg-surface);border:1px solid var(--border-default);border-radius:2px 8px 8px 8px;padding:10px 13px;}
 
+/* activity-log events in the conversation (Wave 1) — quiet, tool-call styled */
+.msg.event{padding:2px 0 16px 41px;font-size:12px;}
+.msg.event::before{left:14px;top:0;}
+.event-line{color:var(--text-muted);font-family:var(--font-mono);letter-spacing:0.02em;
+  display:inline-flex;align-items:center;gap:7px;}
+.msg.event-open{cursor:pointer;}
+.msg.event-open .event-line{color:var(--text-secondary);text-decoration:underline;text-underline-offset:2px;text-decoration-color:var(--border-default);}
+.msg.event-open:hover .event-line{color:var(--accent-gold);}
+/* busy indicator (used by async actions in Wave 2) */
+.event-spinner{width:11px;height:11px;border:1.5px solid var(--border-default);
+  border-top-color:var(--accent-gold);border-radius:50%;display:inline-block;
+  animation:pmqs-spin 0.7s linear infinite;}
+@keyframes pmqs-spin{to{transform:rotate(360deg);}}
+.convo-busy .convo-input input,.convo-busy .convo-input button{opacity:0.5;pointer-events:none;}
+
 .convo-input{border-top:1px solid var(--border-default);padding:14px 18px;display:flex;gap:8px;flex-shrink:0;}
 .convo-input input{
   flex:1;background:var(--bg-active);border:1px solid var(--border-default);border-radius:6px;
