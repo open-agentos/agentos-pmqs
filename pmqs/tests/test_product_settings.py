@@ -192,3 +192,74 @@ def test_archive_hides_it_from_the_switcher_without_deleting(client):
     assert products.list_products(s) == []
     assert products.get_product_by_slug(s, slug) is not None  # still there
     s.close()
+
+
+# --- account Settings keeps the product you came from (ctx round-trip) ---
+
+def test_settings_link_carries_current_product_as_ctx(client):
+    """From a non-default product's page, the identity 'Settings' link tags itself
+    with ?ctx=<slug> so leaving Settings returns you to that product, not the default."""
+    s = client._session_factory()
+    products.get_or_create_default_product(s)                       # default (index 0)
+    acme = products.get_or_create_product(s, org="acme", repo="widgets", nickname="acme")
+    s.commit()
+    slug = acme.slug
+    s.close()
+
+    page = client.get(f"/w/{slug}/").text
+    assert f'href="/settings?ctx={slug}"' in page
+
+
+def test_account_settings_with_ctx_points_the_rail_back_at_that_product(client):
+    s = client._session_factory()
+    products.get_or_create_default_product(s)
+    acme = products.get_or_create_product(s, org="acme", repo="widgets", nickname="acme")
+    s.commit()
+    slug = acme.slug
+    s.close()
+
+    html = client.get(f"/settings?ctx={slug}").text
+    # nav back-links (Inbox etc.) prefixed to the product, not the default
+    assert f"window.location.href = '/w/{slug}/'" in html
+    assert "window.location.href = '/'" not in html
+    # the switcher shows it as current; product-settings link stays on it
+    assert f'/w/{slug}/settings' in html
+    # forms keep ctx so a save doesn't drop you back to the default
+    assert f'action="/settings?ctx={slug}"' in html
+
+
+def test_account_settings_without_ctx_is_unchanged(client):
+    s = client._session_factory()
+    products.get_or_create_default_product(s)
+    s.commit()
+    s.close()
+    html = client.get("/settings").text
+    assert "window.location.href = '/'" in html          # default, unprefixed
+    assert 'action="/settings"' in html                   # no ctx suffix
+
+
+def test_bogus_ctx_is_dropped_not_trusted(client):
+    s = client._session_factory()
+    products.get_or_create_default_product(s)
+    s.commit()
+    s.close()
+    html = client.get("/settings?ctx=does-not-exist").text
+    assert "/w/does-not-exist/" not in html               # never point the rail at a 404
+
+
+def test_saving_account_settings_preserves_ctx(client):
+    s = client._session_factory()
+    products.get_or_create_default_product(s)
+    acme = products.get_or_create_product(s, org="acme", repo="widgets", nickname="acme")
+    s.commit()
+    slug = acme.slug
+    s.close()
+
+    for action, data in (
+        (f"/settings?ctx={slug}", {"provider": "anthropic", "model": "m"}),
+        (f"/settings/news?ctx={slug}", {"news_enabled": "1"}),
+        (f"/settings/advanced?ctx={slug}", {"char_budget": "5000"}),
+    ):
+        r = client.post(action, data=data, follow_redirects=False)
+        assert r.status_code == 303
+        assert r.headers["location"] == f"/settings?ctx={slug}"

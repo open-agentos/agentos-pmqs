@@ -224,15 +224,17 @@ def test_display_name_round_trips_through_the_form(client):
 
 def test_identity_link_is_never_prefixed(client):
     """#98: /w/{slug}/settings is the PRODUCT's settings now. Account settings has no
-    product scope, so the identity block points at an unprefixed /settings from
-    everywhere -- including inside a workspace."""
+    product scope, so the identity block's PATH stays the unprefixed /settings from
+    everywhere -- including inside a workspace. It may carry ?ctx=<slug> (a return
+    hint so leaving Settings comes back to this product), but never the product path."""
     s = client._session_factory()
     slug = products.get_or_create_product(s, org="open-agentos", repo="agentos-pmqs").slug
     s.close()
     r = client.get(f"/w/{slug}/")
     idb = r.text.split('id="identity-block"')[1].split(">")[0]
-    assert 'href="/settings"' in idb
-    assert f"/w/{slug}/settings" not in idb
+    assert 'href="/settings' in idb              # account path, not product-prefixed
+    assert f"/w/{slug}/settings" not in idb      # never routes to product settings
+    assert f"ctx={slug}" in idb                  # but does remember where to return
 
 
 def test_switcher_links_to_the_current_products_settings(client):
