@@ -11,7 +11,7 @@ the route-naming call for item 5 (session -> workspace rename), not this item.
 Underneath, it resolves to a Product (see products.resolve_product_id).
 
 GET  /[w/{slug}/]                       -> Inbox HTML (persisted questions, ranked)
-POST /[w/{slug}/]refresh                -> run trigger pipeline against live AgentOS state
+POST /[w/{slug}/]refresh                -> collect from ALL sources (repo triggers + news), report per-source
 POST /[w/{slug}/]quick-add               -> create a source='pm' Question
 POST /[w/{slug}/]questions/{id}/status   -> update status, redirect back to this Inbox
 GET  /[w/{slug}/]api/questions           -> JSON list (debug/inspection; include_all)
@@ -23,9 +23,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session as OrmSession
 
 from pmqs import members, products, repository, scoring
-from pmqs.agentos_client import AgentOSClient
 from pmqs.db import get_session
-from pmqs.pipeline import generate
+from pmqs.refresh import refresh_all
 from pmqs.resolve import resolve_question_id
 from pmqs.web.render import render_error, render_inbox
 
@@ -52,8 +51,7 @@ def index(
     workspace_slug: str | None = None,
     lens: str | None = Query(default=None),
     source: str | None = Query(default=None),
-    news: str | None = Query(default=None),
-    refreshed: str | None = Query(default=None),
+    refresh: str | None = Query(default=None),
     db: OrmSession = Depends(get_session),
 ):
     try:
@@ -68,7 +66,9 @@ def index(
         db, lens_tag=lens, source=source, product_id=product_id,
         member_id=members.current_member_id(db),
     )
-    return HTMLResponse(render_inbox(questions, flash=news, refreshed=refreshed, db=db, workspace_slug=workspace_slug))
+    # `refresh` is an opaque report token minted by POST /refresh (see refresh.py);
+    # render decodes it into the per-source banner.
+    return HTMLResponse(render_inbox(questions, refresh=refresh, db=db, workspace_slug=workspace_slug))
 
 
 @router.post("/refresh")
@@ -79,11 +79,12 @@ def refresh(workspace_slug: str | None = None, db: OrmSession = Depends(get_sess
     except KeyError:
         return HTMLResponse(render_error(f"No such product workspace: {workspace_slug}", 404), status_code=404)
     repo = _repo_for(db, workspace_slug)
-    # Pull questions from the repo via the structural-trigger pipeline, then show the Inbox
-    # with a banner reporting how many were generated (0 is a valid, explained result).
-    state = AgentOSClient(repo=repo).get_state() if repo else AgentOSClient().get_state()
-    generated = generate(db, state, product_id=product_id)
-    return RedirectResponse(url=f"{_base(workspace_slug)}/?refreshed={len(generated)}", status_code=303)
+    # ONE refresh, every source: structural repo triggers + news ingest/promotion.
+    # The report carries a per-source reason for whatever it produced (0 is a valid,
+    # explained result), encoded into the redirect so the re-rendered Inbox can show a
+    # legible breakdown instead of a silent "nothing happened".
+    report = refresh_all(db, product_id=product_id, repo=repo)
+    return RedirectResponse(url=f"{_base(workspace_slug)}/?refresh={report.encode()}", status_code=303)
 
 
 @router.post("/quick-add")

@@ -43,7 +43,7 @@ def test_account_settings_has_the_news_key_and_masks_it(db):
     settings.set_news_config(db, api_key_raw="SECRETBRAVE")
     html = render_settings(db)
     assert ">News</h2>" in html
-    assert "Fetch news now" in html
+    assert "Fetch news now" not in html  # fetching moved to the Inbox Refresh
     assert "SECRETBRAVE" not in html  # masked, never echoed
 
 

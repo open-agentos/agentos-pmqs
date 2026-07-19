@@ -287,26 +287,3 @@ def test_junk_numbers_keep_the_current_value(client):
     assert settings.get_news_config(s)["count"] == 15
     s.close()
 
-
-def test_fetch_now_returns_to_settings(client):
-    r = client.post("/news/ingest", data={"return_to": "/settings"}, follow_redirects=False)
-    assert r.status_code == 303
-    assert r.headers["location"] == "/settings?news=none"
-
-
-def test_fetch_now_still_defaults_to_the_inbox(client):
-    r = client.post("/news/ingest", follow_redirects=False)
-    assert r.headers["location"] == "/?news=none"
-
-
-def test_offsite_return_to_is_refused(client):
-    r = client.post("/news/ingest", data={"return_to": "//evil.example.com"},
-                    follow_redirects=False)
-    assert r.headers["location"] == "/?news=none"
-
-
-def test_fetch_now_stamps_the_run_even_when_nothing_is_promoted(client):
-    client.post("/news/ingest", data={"return_to": "/settings"})
-    s = client._session_factory()
-    assert settings.get_news_config(s)["last_run"]
-    s.close()

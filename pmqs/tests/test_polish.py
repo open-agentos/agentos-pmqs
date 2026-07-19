@@ -98,11 +98,37 @@ def test_status_redirects_and_dismiss_removes_from_inbox(client):
     assert "dismiss me" not in client.get("/").text
 
 
-# --- B4: news flash banner ---
-def test_news_flash_banner(client):
-    assert "new question" in client.get("/?news=3").text
-    assert "Nothing relevant" in client.get("/?news=none").text
-    assert "Nothing relevant" not in client.get("/").text
+# --- Unified refresh report banner (repo + news in one) ---
+def test_refresh_report_banner_covers_both_sources(client):
+    from pmqs.refresh import RefreshReport, SourceResult
+
+    # repo produced questions; news had no new stories
+    tok = RefreshReport(SourceResult("generated", 3),
+                        SourceResult("nothing_new", 0)).encode()
+    html = client.get(f"/?refresh={tok}").text
+    assert "Refresh complete" in html
+    assert "3 new question" in html
+    assert "Repo: 3 new from structural triggers." in html
+    assert "no new stories for your watchlist" in html
+    # no token → no banner
+    assert "Refresh complete" not in client.get("/").text
+
+
+def test_refresh_report_banner_explains_zero_and_flags_fixables(client):
+    from pmqs.refresh import RefreshReport, SourceResult
+
+    # clean repo (fine) + missing key (fixable) → banner explains each, net zero
+    tok = RefreshReport(
+        SourceResult("clean", 0, "scanned 1 open issue; none stale (>14d) or label-conflicting"),
+        SourceResult("no_key", 0, "set BRAVE_API_KEY in your environment"),
+    ).encode()
+    html = client.get(f"/?refresh={tok}").text
+    assert "no new questions" in html
+    assert "nothing to raise" in html          # clean repo reads as an explanation
+    assert "no Brave API key" in html           # missing key is called out specifically
+    assert "BRAVE_API_KEY" in html
+    # a malformed token must never crash the page
+    assert client.get("/?refresh=not-valid-base64!!!").status_code == 200
 
 
 # --- B6: proposed tab scoped to session ---
@@ -128,27 +154,33 @@ def test_inbox_has_persistent_refresh_button(client):
     assert "pmqsRefresh()" in html
 
 
-def test_refresh_banner_messages(client):
-    assert "Pulled 3 question" in client.get("/?refreshed=3").text
-    assert "no new questions from the repo" in client.get("/?refreshed=0").text
-
-
-def test_refresh_endpoint_redirects_with_count(client):
-    # No open issues in a fake state → generate returns 0; redirect carries the count.
-    import pmqs.api.inbox as inbox_mod
+def test_refresh_endpoint_redirects_with_report_token(client):
+    # Fake a clean repo (no open issues) so the structural pass fires nothing; the
+    # redirect carries an opaque refresh report token that decodes to a real banner.
+    import pmqs.refresh as refresh_mod
+    from pmqs.refresh import RefreshReport
 
     class _FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
         def get_state(self):
             return {"issues": [], "labels": []}
 
-    orig = inbox_mod.AgentOSClient
-    inbox_mod.AgentOSClient = _FakeClient
+    orig = refresh_mod.AgentOSClient
+    refresh_mod.AgentOSClient = _FakeClient
     try:
         r = client.post("/refresh", follow_redirects=False)
         assert r.status_code == 303
-        assert "refreshed=" in r.headers["location"]
+        loc = r.headers["location"]
+        assert "refresh=" in loc
+        token = loc.split("refresh=", 1)[1]
+        report = RefreshReport.decode(token)
+        assert report is not None
+        assert report.repo.code == "clean"       # ran fine, nothing to raise
+        assert report.news.code == "no_key"       # offline test: no Brave key
     finally:
-        inbox_mod.AgentOSClient = orig
+        refresh_mod.AgentOSClient = orig
 
 
 # --- H1: HTML 404 for browser route ---
