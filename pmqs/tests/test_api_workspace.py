@@ -96,6 +96,28 @@ def test_document_outcome_persists(client):
     assert out.json()["type"] == "document"
 
 
+def test_outcome_response_carries_receipt(client):
+    # Wave 1: every committed outcome tells the war room its title + where it lives.
+    r = client.post("/workspace/open", data={}, follow_redirects=False)
+    sid = r.headers["location"].split("/")[-1]
+    out = client.post(f"/workspace/{sid}/outcome",
+                      data={"type": "document", "title": "Drift briefing"})
+    j = out.json()
+    assert j["title"] == "Drift briefing"
+    assert j["location"]["kind"] == "ledger"
+    assert j["location"]["url"].endswith("/outcomes")
+
+
+def test_policy_receipt_title_is_its_text(client):
+    r = client.post("/workspace/open", data={}, follow_redirects=False)
+    sid = r.headers["location"].split("/")[-1]
+    out = client.post(f"/workspace/{sid}/outcome",
+                      data={"type": "policy", "title": "cap retries", "body": "cap retries at 3"})
+    j = out.json()
+    assert j["title"] == "cap retries at 3"
+    assert j["location"]["kind"] == "ledger"
+
+
 def test_unknown_outcome_type_rejected(client):
     r = client.post("/workspace/open", data={}, follow_redirects=False)
     sid = r.headers["location"].split("/")[-1]

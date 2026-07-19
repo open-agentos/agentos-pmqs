@@ -55,3 +55,15 @@ def test_render_workspace_empty_states(db):
     assert "No evidence bound yet" in out
     assert "Not generated yet" in out    # position doc empty-state
     assert 'id="view-inbox"' in out
+
+
+def test_outcome_bar_uses_inline_fetch_receipt(db):
+    # Wave 1: the war room must POST outcomes via fetch and render a receipt inline,
+    # never the old full-page form submit that dumped the PM on raw JSON.
+    sess = repository.open_session(db, topic="receipt wiring")
+    out = render_workspace(sess, [], [], [], None)
+    assert "function addOutcome" in out
+    assert "pmqsOutcomeReceipt" in out
+    assert "/outcome'," in out and "fetch(" in out
+    # The old form-submit path for outcomes is gone.
+    assert "pmqsPost('/workspace/'+PMQS_SID+'/outcome'" not in out

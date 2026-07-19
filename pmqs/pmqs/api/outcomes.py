@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session as OrmSession
 from pmqs import members, products, repository
 from pmqs.db import get_session
 from pmqs.outcomes import push_question_to_issue
+from pmqs.outcomes.receipt import display_title, location_for
 from pmqs.outcomes.types import (
     OutcomeValidationError,
     build_document,
@@ -69,7 +70,8 @@ def push_issue(qid: str, db: OrmSession = Depends(get_session)):
     if q is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     result = push_question_to_issue(db, q)
-    return JSONResponse(result)
+    loc = location_for("issue", github_ref=result.get("github_ref"))
+    return JSONResponse({"title": q.title, "location": loc, **result})
 
 
 # --- Phase 2/3: typed outcomes from the war-room outcome bar ---
@@ -102,7 +104,11 @@ def create_typed_outcome(
                 product_id=product_id,
             )
         result = push_question_to_issue(db, q, session_id=session_id)
-        return JSONResponse({"type": "issue", **result})
+        # Receipt: tell the war room exactly what was made and where it now lives.
+        loc = location_for("issue", github_ref=result.get("github_ref"))
+        return JSONResponse(
+            {"type": "issue", "title": q.title, "location": loc, **result}
+        )
 
     # Non-Issue types: build a validated per-type payload; hosted-store only.
     try:
@@ -127,7 +133,14 @@ def create_typed_outcome(
         github_ref=None,  # hosted-store only; policy can never be pushed
         product_id=product_id,
     )
-    return JSONResponse({"type": type, "outcome_id": outcome.id, "github_ref": None})
+    # Receipt: hosted-store outcomes land in the ledger — that is their "where".
+    return JSONResponse({
+        "type": type,
+        "outcome_id": outcome.id,
+        "github_ref": None,
+        "title": display_title(type, payload),
+        "location": location_for(type),
+    })
 
 
 @router.post("/outcomes/{outcome_id}/deactivate")

@@ -764,9 +764,58 @@ function sendMsg(){{
 function pmqsRunLenses(){{ pmqsPost('/workspace/'+PMQS_SID+'/run-lenses', {{}}); }}
 function pmqsGenDoc(){{ pmqsPost('/workspace/'+PMQS_SID+'/position-doc', {{}}); }}
 function pmqsAddProposed(qid, btn){{ pmqsPost('/workspace/'+PMQS_SID+'/proposed/'+qid+'/add', {{}}); }}
-// Outcome bar → real typed-outcome endpoint.
+// Outcome bar → real typed-outcome endpoint, rendered INLINE (no navigation).
+// Wave 1: this replaces the old full-page form submit that dumped the PM on a raw
+// JSON blob. The receipt says what was made and links to where it now lives.
+function pmqsOutcomeReceipt(text, url, linkLabel, ok){{
+  var log = document.getElementById('outcomes-log');
+  if(!log) return;
+  var span = document.createElement('span');
+  span.className = 'chip ' + (ok ? 'record' : 'issue');
+  span.textContent = text;
+  if(url){{
+    var a = document.createElement('a');
+    a.href = url; a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = ' ' + (linkLabel || 'open');
+    a.style.marginLeft = '6px';
+    span.appendChild(a);
+  }}
+  log.appendChild(span);
+}}
+var PMQS_OUTCOME_LABELS = {{issue:'Issue title', policy:'Policy — the standing rule', document:'Document title', meeting:'Meeting title', question:'Question'}};
 function addOutcome(type, label){{
-  pmqsPost('/workspace/'+PMQS_SID+'/outcome', {{type: type, title: label || ''}});
+  // Wave 1 interim: a minimal title input. Wave 2 replaces this prompt with a
+  // draft generated from the session context in an editable Draft tab.
+  var title = label;
+  if(!title){{
+    title = window.prompt((PMQS_OUTCOME_LABELS[type] || 'Title') + ':');
+    if(title === null) return;   // cancelled
+    title = title.trim();
+    if(!title) return;           // empty — nothing to create
+  }}
+  var body = new URLSearchParams();
+  body.set('type', type); body.set('title', title);
+  if(type === 'policy') body.set('body', title);  // policy is free-form text
+  fetch('/workspace/'+PMQS_SID+'/outcome', {{
+    method:'POST',
+    headers:{{'Content-Type':'application/x-www-form-urlencoded'}},
+    body: body.toString()
+  }}).then(function(r){{ return r.json().then(function(j){{ return {{ok:r.ok, j:j}}; }}); }})
+    .then(function(res){{
+      if(!res.ok){{
+        pmqsOutcomeReceipt('✕ ' + ((res.j && res.j.error) || ('could not create ' + type)), null, null, false);
+        return;
+      }}
+      var j = res.j;
+      var tname = type.charAt(0).toUpperCase()+type.slice(1);
+      var loc = j.location || {{}};
+      pmqsOutcomeReceipt('✓ ' + tname + ' created — ' + (j.title || title), loc.url, loc.label, true);
+      var badge = document.getElementById('ws-badge');
+      if(badge) badge.textContent = (parseInt(badge.textContent||'0',10)||0) + 1;
+    }})
+    .catch(function(){{
+      pmqsOutcomeReceipt('✕ network error creating ' + type, null, null, false);
+    }});
 }}
 // Neutralize the template's client-only acceptProposed (superseded by pmqsAddProposed).
 function acceptProposed(btn){{ /* handled by pmqsAddProposed */ }}
