@@ -209,14 +209,53 @@ def find_open_session_for_question(db: OrmSession, question_id: str) -> Session 
     return db.scalars(stmt).first()
 
 
-def close_session(db: OrmSession, sid: str) -> Session | None:
+def close_session(db: OrmSession, sid: str, *, reason: str | None = None) -> Session | None:
     s = db.get(Session, sid)
     if s is None:
         return None
     s.status = "closed"
     s.closed_at = _now()
+    if reason:
+        # Wave 4: legible absence — why the room closed, so a null outcome is a signal
+        # rather than a mystery. Free-form but the UI offers a fixed set of reasons.
+        s.close_reason = reason
     db.commit()
     return s
+
+
+def session_has_outcome(db: OrmSession, sid: str) -> bool:
+    """True if this session produced at least one (active) outcome."""
+    return (
+        db.query(Outcome)
+        .filter(Outcome.session_id == sid, Outcome.retired_at.is_(None))
+        .first()
+        is not None
+    )
+
+
+def outcome_conversion(db: OrmSession, *, product_id: str | None = None) -> dict[str, Any]:
+    """The quiet session→outcome signal (build-spec §4.5).
+
+    Separates "no outcome because nothing was warranted" from "no outcome because the
+    tool failed the PM" using the recorded close reason. Not a dashboard — a stat the
+    ledger/Settings can show if wanted; the point is that absence is legible at all.
+    """
+    q = db.query(Session)
+    if product_id is not None:
+        q = q.filter(Session.product_id == product_id)
+    sessions = q.all()
+    total = len(sessions)
+    with_outcome = sum(1 for s in sessions if session_has_outcome(db, s.id))
+    reasons: dict[str, int] = {}
+    for s in sessions:
+        if s.close_reason and not session_has_outcome(db, s.id):
+            reasons[s.close_reason] = reasons.get(s.close_reason, 0) + 1
+    return {
+        "sessions": total,
+        "with_outcome": with_outcome,
+        "closed_no_outcome": sum(reasons.values()),
+        "reasons": reasons,
+    }
 
 
 def set_position_doc(db: OrmSession, sid: str, doc: dict[str, Any]) -> Session | None:

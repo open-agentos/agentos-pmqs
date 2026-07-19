@@ -872,6 +872,66 @@ function pmqsDraft(type){{
 
 // Outcome-bar buttons are now draft-first: draft → edit → commit.
 function addOutcome(type){{ pmqsDraft(type); }}
+
+// Wrap up (Wave 4): suggest the best outcome, and offer to close with a reason so a
+// no-outcome exit is a signal, not a mystery. Suggestion never creates anything.
+var PMQS_CLOSE_REASONS = [
+  ['no_decision_yet', 'No decision needed yet'],
+  ['decided_nothing_to_record', 'Decided — nothing to record'],
+  ['couldnt_get_what_i_needed', "Couldn't get what I needed"]
+];
+function pmqsRenderWrapup(sugg){{
+  var panel = document.getElementById('wrapup-panel');
+  if(!panel) return;
+  panel.style.display = 'block';
+  panel.innerHTML = '';
+  var s = document.createElement('div'); s.className = 'wrapup-suggest';
+  if(sugg && sugg.type){{
+    var tname = sugg.type.charAt(0).toUpperCase()+sugg.type.slice(1);
+    s.innerHTML = 'Suggested outcome: <b>' + tname + '</b> — <span class="wrapup-why"></span> ';
+    s.querySelector('.wrapup-why').textContent = sugg.rationale || '';
+    var draftBtn = document.createElement('button'); draftBtn.className = 'p-add';
+    draftBtn.textContent = 'Draft it';
+    draftBtn.onclick = function(){{ pmqsDraft(sugg.type); }};
+    s.appendChild(draftBtn);
+  }} else {{
+    s.textContent = (sugg && sugg.rationale) || 'Pick the outcome that fits — PMQs drafts it from this session.';
+  }}
+  panel.appendChild(s);
+  var lbl = document.createElement('div'); lbl.className = 'wrapup-label';
+  lbl.textContent = 'Or close this room';
+  panel.appendChild(lbl);
+  var reasons = document.createElement('div'); reasons.className = 'wrapup-reasons';
+  PMQS_CLOSE_REASONS.forEach(function(pair){{
+    var b = document.createElement('button'); b.className = 'p-dismiss';
+    b.textContent = pair[1];
+    b.onclick = function(){{ pmqsCloseRoom(pair[0]); }};
+    reasons.appendChild(b);
+  }});
+  panel.appendChild(reasons);
+}}
+function pmqsWrapUp(){{
+  var panel = document.getElementById('wrapup-panel');
+  if(panel && panel.style.display === 'block'){{ panel.style.display = 'none'; return; }}  // toggle
+  if(panel){{ panel.style.display = 'block'; panel.innerHTML = '<div class="wrapup-suggest">Thinking about the best outcome…</div>'; }}
+  var body = new URLSearchParams();
+  fetch('/workspace/'+PMQS_SID+'/suggest-outcome', {{
+    method:'POST', headers:{{'Content-Type':'application/x-www-form-urlencoded'}}, body: body.toString()
+  }}).then(function(r){{ return r.json(); }})
+    .then(function(j){{ pmqsRenderWrapup(j); }})
+    .catch(function(){{ pmqsRenderWrapup(null); }});
+}}
+function pmqsCloseRoom(reason){{
+  var body = new URLSearchParams(); body.set('reason', reason);
+  fetch('/workspace/'+PMQS_SID+'/close', {{
+    method:'POST', headers:{{'Content-Type':'application/x-www-form-urlencoded'}}, body: body.toString()
+  }}).then(function(r){{ return r.json(); }})
+    .then(function(){{
+      var panel = document.getElementById('wrapup-panel');
+      if(panel) panel.innerHTML = '<div class="wrapup-suggest">Room closed. Nothing was recorded — that reason is logged.</div>';
+    }})
+    .catch(function(){{}});
+}}
 // Neutralize the template's client-only acceptProposed (superseded by pmqsAddProposed).
 function acceptProposed(btn){{ /* handled by pmqsAddProposed */ }}
 // Land on the Workspace view when arriving at this page.

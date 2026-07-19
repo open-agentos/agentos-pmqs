@@ -100,6 +100,42 @@ def draft_outcome(
     return JSONResponse(generate_draft(db, session, type))
 
 
+@router.post("/workspace/{session_id}/suggest-outcome")
+def suggest_outcome_endpoint(session_id: str, db: OrmSession = Depends(get_session)):
+    """Wave 4: on wrap-up, recommend the single best outcome (type + draft title +
+    rationale). Suggestion only — never creates. Cheap (one short LLM call), fail-open.
+    """
+    from pmqs.outcomes.suggest import suggest_outcome
+
+    session = repository.get_session_row(db, session_id)
+    if session is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse(suggest_outcome(db, session))
+
+
+# Fixed, PM-facing close reasons — the three that distinguish "nothing warranted" from
+# "the tool failed me" (build-spec §4.5). Free-form isn't offered; these are the signal.
+CLOSE_REASONS = {"no_decision_yet", "decided_nothing_to_record", "couldnt_get_what_i_needed"}
+
+
+@router.post("/workspace/{session_id}/close")
+def close_session_endpoint(
+    session_id: str,
+    reason: str = Form(default=""),
+    db: OrmSession = Depends(get_session),
+):
+    """Wave 4: close a room, optionally recording WHY when it produced no outcome, so a
+    null outcome becomes a signal. Optional and never a gate — reason may be empty.
+    """
+    reason = (reason or "").strip()
+    if reason and reason not in CLOSE_REASONS:
+        return JSONResponse({"error": f"unknown close reason: {reason}"}, status_code=400)
+    s = repository.close_session(db, session_id, reason=reason or None)
+    if s is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse({"id": s.id, "status": s.status, "close_reason": s.close_reason})
+
+
 @router.post("/workspace/{session_id}/outcome")
 def create_typed_outcome(
     session_id: str,

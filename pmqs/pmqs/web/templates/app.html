@@ -410,6 +410,12 @@ textarea.set-input{min-height:64px;}
 .draft-textarea{min-height:140px;resize:vertical;line-height:1.55;}
 .draft-note{font-size:11.5px;color:var(--text-muted);margin-bottom:10px;}
 .draft-actions{display:flex;gap:8px;margin-top:4px;}
+/* wrap-up panel (Wave 4) — suggestion + close reasons; reuses existing tokens */
+.wrapup-panel{border:1px solid var(--border-default);background:var(--bg-main);border-radius:8px;padding:12px 14px;margin-bottom:12px;}
+.wrapup-suggest{font-size:13px;color:var(--text-primary);margin-bottom:10px;line-height:1.5;}
+.wrapup-suggest .wrapup-why{color:var(--text-secondary);}
+.wrapup-label{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin:8px 0 6px;}
+.wrapup-reasons{display:flex;gap:8px;flex-wrap:wrap;}
 /* outcome bar */
 .outcome-bar{border-top:1px solid var(--border-default);background:var(--bg-surface);padding:14px 26px;flex-shrink:0;}
 .outcome-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
@@ -749,6 +755,7 @@ textarea.set-input{min-height:64px;}
 
         <!-- outcome bar -->
         <div class="outcome-bar">
+          <div class="wrapup-panel" id="wrapup-panel" style="display:none;"></div>
           <div class="outcome-row">
             <div class="outcome-actions">
               <button class="o-btn issue" onclick="addOutcome('issue')">▤ Raise issue</button>
@@ -756,6 +763,7 @@ textarea.set-input{min-height:64px;}
               <button class="o-btn document" onclick="addOutcome('document')">✎ Draft document</button>
               <button class="o-btn meeting" onclick="addOutcome('meeting')">◷ Schedule meeting</button>
               <button class="o-btn question" onclick="addOutcome('question')">? New question</button>
+              <button class="o-btn wrapup" onclick="pmqsWrapUp()">⤶ Wrap up</button>
             </div>
             <div class="outcomes-log" id="outcomes-log">
               <span class="session-stats"><span id="sess-count">2</span> exchanges · <span id="sess-cost">$0.06</span> · <span id="sess-time">3m</span></span>
