@@ -118,3 +118,22 @@ def test_author_name_is_escaped(db):
 
     out = render_outcomes(db)
     assert "<script>alert(1)</script>" not in out
+
+
+def test_ledger_document_has_export_link(db):
+    from pmqs.web.render import render_outcomes
+    repository.create_outcome(db, type="document", payload={"title": "Brief", "body": "b"})
+    out = render_outcomes(db)
+    assert "export.md" in out
+    assert "Export .md" in out
+
+
+def test_ledger_meeting_shows_calendar_when_present(db):
+    from pmqs.web.render import render_outcomes
+    repository.create_outcome(
+        db, type="meeting",
+        payload={"title": "Review", "agenda": "x", "calendar_link": "https://cal/x"},
+    )
+    out = render_outcomes(db)
+    assert "Add to calendar" in out
+    assert "https://cal/x" in out

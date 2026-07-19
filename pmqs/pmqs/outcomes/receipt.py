@@ -51,3 +51,27 @@ def display_title(outcome_type: str, payload: dict[str, Any]) -> str:
         text = (payload.get("text") or "").strip()
         return text if len(text) <= 80 else text[:77] + "…"
     return (payload.get("title") or payload.get("text") or "").strip()
+
+
+def outcome_markdown(outcome_type: str, payload: dict[str, Any]) -> str:
+    """Render an outcome as portable Markdown (Wave 3 export).
+
+    This is the "your artifact is yours" affordance: a Document drops cleanly into any
+    doc or chat tool. Pure text, no DB — the endpoint just serves what this returns.
+    """
+    title = (payload.get("title") or "").strip()
+    if outcome_type == "document":
+        return f"# {title}\n\n{(payload.get('body') or '').strip()}\n"
+    if outcome_type == "meeting":
+        md = f"# {title}\n\n## Agenda\n\n{(payload.get('agenda') or '').strip()}\n"
+        link = (payload.get("calendar_link") or "").strip()
+        if link:
+            md += f"\n[Add to calendar]({link})\n"
+        return md
+    if outcome_type == "policy":
+        return f"# Policy\n\n{(payload.get('text') or '').strip()}\n"
+    if outcome_type == "question":
+        return f"# {title}\n\n{(payload.get('body') or '').strip()}\n"
+    if outcome_type == "issue":
+        return f"# {title}\n"
+    return f"# {title}\n"

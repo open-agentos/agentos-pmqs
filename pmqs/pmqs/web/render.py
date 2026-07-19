@@ -791,6 +791,7 @@ function pmqsCommitOutcome(type, fields){{
   if(fields.title) body.set('title', fields.title);
   if(fields.body) body.set('body', fields.body);
   if(fields.agenda) body.set('agenda', fields.agenda);
+  if(fields.calendar_link) body.set('calendar_link', fields.calendar_link);
   if(type === 'policy') body.set('body', fields.text || fields.body || fields.title || '');
   fetch('/workspace/'+PMQS_SID+'/outcome', {{
     method:'POST', headers:{{'Content-Type':'application/x-www-form-urlencoded'}}, body: body.toString()
@@ -800,6 +801,8 @@ function pmqsCommitOutcome(type, fields){{
       if(!res.ok){{ pmqsOutcomeReceipt('✕ ' + ((res.j && res.j.error) || ('could not create ' + type)), null, null, false); return; }}
       var j = res.j; var loc = j.location || {{}};
       pmqsOutcomeReceipt('✓ ' + tname + ' created — ' + (j.title || fields.title || ''), loc.url, loc.label, true);
+      // Wave 3: portability — a Document/Meeting can be taken anywhere as Markdown.
+      if(j.export_url) pmqsOutcomeReceipt('⤓ ' + tname, j.export_url + '?download=1', 'Download .md', true);
       var badge = document.getElementById('ws-badge');
       if(badge) badge.textContent = (parseInt(badge.textContent||'0',10)||0) + 1;
       var host = document.getElementById('draft-body');
@@ -831,6 +834,15 @@ function pmqsRenderDraft(type, fields, degraded){{
     el.value = fields[k] || ''; wrap.appendChild(el); host.appendChild(wrap);
     inputs[k] = el;
   }});
+  // Wave 3: a Meeting can optionally carry a calendar link (passthrough, not generated).
+  if(type === 'meeting'){{
+    var cwrap = document.createElement('div'); cwrap.className = 'draft-field';
+    var clbl = document.createElement('div'); clbl.className = 'draft-field-label';
+    clbl.textContent = 'Calendar link (optional)'; cwrap.appendChild(clbl);
+    var cel = document.createElement('input'); cel.className = 'draft-input'; cel.type = 'text';
+    cel.placeholder = 'paste a calendar event URL'; cwrap.appendChild(cel); host.appendChild(cwrap);
+    inputs['calendar_link'] = cel;
+  }}
   var actions = document.createElement('div'); actions.className = 'draft-actions';
   var commit = document.createElement('button'); commit.className = 'p-add'; commit.textContent = 'Commit ' + tname;
   commit.onclick = function(){{
@@ -1016,10 +1028,21 @@ def _ledger_item_html(o: Any, payload: dict, author: str | None = None) -> str:
         ref += '</div>'
     else:
         ref = f'<div class="ledger-src">{html.escape(src)}</div>'
+    # Wave 3: portability affordances on the ledger. Document/Meeting get an export
+    # link; a Meeting with a calendar_link gets an "Add to calendar" link. Reuses
+    # .ledger-src + existing tokens, so the §11 brand drift guards stay green.
+    extras = ""
+    if otype in ("document", "meeting"):
+        exp = f'/outcomes/{html.escape(o.id)}/export.md'
+        links = f'<a href="{exp}" target="_blank" rel="noopener">Export .md</a>'
+        cal = html.escape((payload.get("calendar_link") or "").strip())
+        if otype == "meeting" and cal:
+            links += f' · <a href="{cal}" target="_blank" rel="noopener">Add to calendar</a>'
+        extras = f'<div class="ledger-src">{links}</div>'
     return (
         f'<div class="ledger-item" data-type="{otype}">'
         f'<span class="ledger-tag {otype}">{tag}</span>'
-        f'<div class="ledger-main">{title}{ref}</div>'
+        f'<div class="ledger-main">{title}{ref}{extras}</div>'
         f'<span class="ledger-time"></span></div>'
     )
 

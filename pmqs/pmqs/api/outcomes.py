@@ -9,13 +9,13 @@ outcomes created against it inherit that scoping automatically.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session as OrmSession
 
 from pmqs import members, products, repository
 from pmqs.db import get_session
 from pmqs.outcomes import push_question_to_issue
-from pmqs.outcomes.receipt import display_title, location_for
+from pmqs.outcomes.receipt import display_title, location_for, outcome_markdown
 from pmqs.outcomes.types import (
     OutcomeValidationError,
     build_document,
@@ -123,7 +123,12 @@ def create_typed_outcome(
                 db, title=title or "War-room issue", source="pm", description=body,
                 product_id=product_id,
             )
-        result = push_question_to_issue(db, q, session_id=session_id)
+        from pmqs.outcomes.tracker import TrackerNotConfigured
+        try:
+            result = push_question_to_issue(db, q, session_id=session_id)
+        except TrackerNotConfigured as exc:
+            # e.g. Jira selected but not wired — surface it as a clean receipt error.
+            return JSONResponse({"error": str(exc)}, status_code=400)
         # Receipt: tell the war room exactly what was made and where it now lives.
         loc = location_for("issue", github_ref=result.get("github_ref"))
         return JSONResponse(
@@ -154,12 +159,14 @@ def create_typed_outcome(
         product_id=product_id,
     )
     # Receipt: hosted-store outcomes land in the ledger — that is their "where".
+    # export_url makes Document/Meeting portable (copy / download .md / open-in-tab).
     return JSONResponse({
         "type": type,
         "outcome_id": outcome.id,
         "github_ref": None,
         "title": display_title(type, payload),
         "location": location_for(type),
+        "export_url": f"/outcomes/{outcome.id}/export.md",
     })
 
 
@@ -188,3 +195,22 @@ def promote_outcome(outcome_id: str, db: OrmSession = Depends(get_session)):
     if o is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     return JSONResponse({"id": o.id, "promoted_at": o.promoted_at})
+
+
+@router.get("/outcomes/{outcome_id}/export.md")
+def export_outcome_markdown(
+    outcome_id: str, download: int = 0, db: OrmSession = Depends(get_session)
+):
+    """Export an outcome as Markdown (Wave 3). `?download=1` sets an attachment
+    filename; without it the page opens inline (open-in-tab). The client's copy button
+    fetches the same text. This is what makes a Document portable — the whole value of
+    producing it in PMQs is that it drops cleanly into any tool the PM already uses.
+    """
+    o = repository.get_outcome(db, outcome_id)
+    if o is None:
+        return PlainTextResponse("not found", status_code=404)
+    md = outcome_markdown(o.type, repository.outcome_payload(o))
+    headers = {}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{o.type}-{outcome_id[:8]}.md"'
+    return PlainTextResponse(md, media_type="text/markdown; charset=utf-8", headers=headers)
