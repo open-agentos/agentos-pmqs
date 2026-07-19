@@ -1,0 +1,56 @@
+# =============================================================================
+# Tests — run the pytest suite on every push to main and every pull request.
+#
+# This is the repo's first real test gate. Until now the only checks were the
+# AgentOS agent workflows (intake / orchestrator / settlement), so "all checks
+# passed" never meant the suite actually ran (issue #79). This closes that gap.
+#
+# Design notes:
+#   * Minimal permissions (contents: read) — this job never writes to the repo,
+#     so it can't interfere with the agent pipeline's state machine.
+#   * PMQS_LLM_MODE=off makes the run fully offline: no API keys, no network,
+#     no model calls. The suite already exercises the LLM-off fallback paths.
+#   * The package lives in ./pmqs (pyproject there); tests are ./pmqs/tests.
+# =============================================================================
+
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Read-only: never touch repo state, so this can't collide with agent workflows.
+permissions:
+  contents: read
+
+# Newer pushes to the same ref supersede in-flight runs.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pmqs
+    env:
+      PMQS_LLM_MODE: "off" # never call a real model in CI
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12" # matches requires-python >=3.12
+          cache: pip
+          cache-dependency-path: pmqs/pyproject.toml
+
+      - name: Install package + test deps
+        run: pip install -e ".[test]"
+
+      - name: Run tests
+        run: pytest -q
