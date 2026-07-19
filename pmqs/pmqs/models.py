@@ -73,6 +73,7 @@ class Session(Base):
     parent_id: Mapped[str | None] = mapped_column(ForeignKey("sessions.id"))  # branching
     status: Mapped[str] = mapped_column(Text, nullable=False, default="open")  # open | closed
     position_doc: Mapped[str | None] = mapped_column(Text)  # JSON, generate-once (Phase 2)
+    close_reason: Mapped[str | None] = mapped_column(Text)  # Wave 4: legible-absence signal
     created_at: Mapped[str] = mapped_column(Text, nullable=False, default=_now)
     closed_at: Mapped[str | None] = mapped_column(Text)
 

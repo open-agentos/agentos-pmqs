@@ -52,6 +52,7 @@ def _apply_light_migrations() -> None:
             ("product_id", "TEXT"),
             ("author_member_id", "TEXT"),
             ("visibility", "TEXT NOT NULL DEFAULT 'shared'"),
+            ("close_reason", "TEXT"),
         ],
         "outcomes": [
             ("product_id", "TEXT"),

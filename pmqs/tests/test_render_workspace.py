@@ -90,3 +90,18 @@ def test_meeting_draft_offers_calendar_field_and_export_receipt(db):
     assert "calendar_link" in out
     assert "export_url" in out
     assert "Download .md" in out
+
+
+def test_wrapup_and_close_wiring(db):
+    # Wave 4: the war room has a Wrap up affordance that suggests an outcome and offers
+    # close-with-reason (legible absence).
+    sess = repository.open_session(db, topic="wave4 wiring")
+    out = render_workspace(sess, [], [], [], None)
+    assert "⤶ Wrap up" in out
+    assert 'id="wrapup-panel"' in out
+    assert "function pmqsWrapUp" in out
+    assert "function pmqsCloseRoom" in out
+    assert "suggest-outcome" in out
+    # the three close reasons are present
+    for r in ("no_decision_yet", "decided_nothing_to_record", "couldnt_get_what_i_needed"):
+        assert r in out
