@@ -130,3 +130,18 @@ def test_draft_path_narrates_and_pane_busy(db):
     assert "tabs-busy" in out
     assert "draft ready — review and commit" in out
     assert "pmqsPaneBusy(true)" in out
+
+
+def test_assistant_bubble_renders_markdown_pm_stays_plain(db):
+    # The war-room reply renders Markdown (source links clickable); PM input stays escaped.
+    sess = repository.open_session(db, topic="md")
+    repository.add_message(db, sess.id, role="pm", content="**not bold** <b>x</b>")
+    repository.add_message(db, sess.id, role="assistant",
+                           content="Per [#47](https://github.com/o/r/issues/47), **ship**.")
+    out = render_workspace(sess, repository.list_messages(db, sess.id), [], [], None)
+    # assistant: markdown rendered + link
+    assert '<a href="https://github.com/o/r/issues/47"' in out
+    assert "<strong>ship</strong>" in out
+    # PM: literal, escaped — no injected tags
+    assert "&lt;b&gt;x&lt;/b&gt;" in out
+    assert "**not bold**" in out  # not rendered as bold for user input
