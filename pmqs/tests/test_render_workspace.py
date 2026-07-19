@@ -105,3 +105,18 @@ def test_wrapup_and_close_wiring(db):
     # the three close reasons are present
     for r in ("no_decision_yet", "decided_nothing_to_record", "couldnt_get_what_i_needed"):
         assert r in out
+
+
+def test_async_action_client_wiring(db):
+    # Interplay Wave 2: actions are async with a live log + busy indicator.
+    sess = repository.open_session(db, topic="async wiring")
+    out = render_workspace(sess, [], [], [], None)
+    assert "function pmqsAjax" in out
+    assert "X-PMQS-Ajax" in out
+    assert "function pmqsBusy" in out
+    assert "pmqsBusyLine" in out
+    assert "War-room is thinking" in out
+    assert "function pmqsRefreshTab" in out
+    # message/lenses/doc no longer use the full-page form-submit helper
+    assert "pmqsPost('/workspace/'+PMQS_SID+'/message'" not in out
+    assert "pmqsPost('/workspace/'+PMQS_SID+'/run-lenses'" not in out

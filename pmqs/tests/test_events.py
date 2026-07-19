@@ -76,4 +76,4 @@ def test_events_do_not_count_as_exchanges(db):
     repository.add_message(db, sess.id, role="pm", content="q1")
     repository.add_event(db, sess.id, kind="lenses", label="⟳ Ran lenses")
     out = render_workspace(sess, repository.list_messages(db, sess.id), [], [], None)
-    assert "<span>1</span> exchanges" in out
+    assert '<span id="sess-count">1</span> exchanges' in out

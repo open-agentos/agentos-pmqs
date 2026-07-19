@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, Form, Query
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session as OrmSession
 
@@ -17,6 +17,13 @@ from pmqs.resolve import resolve_question_id
 from pmqs.web.render import render_error, render_workspace, render_workspace_list
 
 router = APIRouter()
+
+
+def _wants_json(request: Request) -> bool:
+    """The async client (Wave 2) sends X-PMQS-Ajax:1 so actions can live-append to the
+    conversation instead of doing a full-page 303 reload. Any other caller (a plain form
+    POST, a test hitting the legacy path) still gets the redirect."""
+    return request.headers.get("x-pmqs-ajax") == "1"
 
 
 def _repo_for(db: OrmSession, workspace_slug: str | None) -> str | None:
@@ -113,32 +120,44 @@ def workspace_view(session_id: str, workspace_slug: str | None = None,
 
 
 @router.post("/workspace/{session_id}/message")
-def workspace_message(session_id: str, content: str = Form(...), db: OrmSession = Depends(get_session)):
-    warroom.respond(db, session_id, content)
+def workspace_message(session_id: str, request: Request, content: str = Form(...), db: OrmSession = Depends(get_session)):
+    assistant = warroom.respond(db, session_id, content)
+    if _wants_json(request):
+        from pmqs.web.render import render_message_html
+        return JSONResponse({"assistant_html": render_message_html(assistant)})
     return RedirectResponse(url=f"/workspace/{session_id}", status_code=303)
 
 
 @router.post("/workspace/{session_id}/run-lenses")
-def workspace_run_lenses(session_id: str, db: OrmSession = Depends(get_session)):
+def workspace_run_lenses(session_id: str, request: Request, db: OrmSession = Depends(get_session)):
     sess = repository.get_session_row(db, session_id)
     if sess is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     produced = lenses.run_session_lenses(db, sess)
-    repository.add_event(
-        db, session_id, kind="lenses",
-        label=f"⟳ Ran 8-lens pass — {len(produced)} proposed question"
-              + ("" if len(produced) == 1 else "s"),
-        tab="proposed",
+    label = (
+        f"⟳ Ran 8-lens pass — {len(produced)} proposed question"
+        + ("" if len(produced) == 1 else "s")
     )
+    repository.add_event(db, session_id, kind="lenses", label=label, tab="proposed")
+    if _wants_json(request):
+        from pmqs.web.render import render_event_line, render_proposed_tab_html
+        proposed = repository.list_session_proposed(db, sess.id)
+        return JSONResponse({
+            "event_html": render_event_line(label, "proposed"),
+            "tab": "proposed",
+            "tab_html": render_proposed_tab_html(proposed, sess.id),
+            "tab_count": len(proposed),
+        })
     return RedirectResponse(url=f"/workspace/{session_id}", status_code=303)
 
 
 @router.post("/workspace/{session_id}/position-doc")
-def workspace_position_doc(session_id: str, db: OrmSession = Depends(get_session)):
+def workspace_position_doc(session_id: str, request: Request, db: OrmSession = Depends(get_session)):
     sess = repository.get_session_row(db, session_id)
     if sess is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     # Generate ONCE: no-op if already present (per resolved Q2).
+    generated = False
     if not sess.position_doc and sess.question_id:
         q = repository.get_question(db, sess.question_id)
         if q is not None:
@@ -150,6 +169,17 @@ def workspace_position_doc(session_id: str, db: OrmSession = Depends(get_session
                 db, session_id, kind="position_doc",
                 label="✎ Position document generated", tab="doc",
             )
+            generated = True
+    if _wants_json(request):
+        import json as _json
+        from pmqs.web.render import render_event_line, render_position_doc_tab_html
+        sess = repository.get_session_row(db, session_id)
+        doc = _json.loads(sess.position_doc) if sess and sess.position_doc else None
+        return JSONResponse({
+            "event_html": render_event_line("✎ Position document generated", "doc") if generated else "",
+            "tab": "doc",
+            "tab_html": render_position_doc_tab_html(doc),
+        })
     return RedirectResponse(url=f"/workspace/{session_id}", status_code=303)
 
 
