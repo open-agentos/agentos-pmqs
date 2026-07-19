@@ -591,8 +591,33 @@ def _initials(label: str) -> str:
     return "".join(w[0] for w in words[:2]).upper() or "?"
 
 
+def _event_html(m: Any) -> str:
+    """An activity-log line in the conversation (role='event'). Quiet, tool-call styled,
+    and click-to-open the matching artifact tab when the event carries one. Reuses
+    existing tokens — no new palette — so the brand drift guards stay green."""
+    import json as _json
+    try:
+        payload = _json.loads(getattr(m, "content", "") or "{}")
+    except (ValueError, TypeError):
+        payload = {}
+    label = payload.get("label") or "Activity"
+    tab = payload.get("tab")
+    attrs = ""
+    cls = "msg event"
+    if tab:
+        cls += " event-open"
+        attrs = f" onclick=\"showTab('{html.escape(str(tab))}')\" title=\"Open the artifact\""
+    return (
+        f'<div class="{cls}"{attrs}>'
+        f'<div class="event-line">{html.escape(str(label))}</div>'
+        f"</div>"
+    )
+
+
 def _msg_html(m: Any) -> str:
     role = getattr(m, "role", "system")
+    if role == "event":
+        return _event_html(m)
     cls = "pm" if role == "pm" else "system"
     label = "You" if role == "pm" else ("System" if role == "system" else "War-room")
     bubble = "pm-bubble" if role == "pm" else "sys-bubble"

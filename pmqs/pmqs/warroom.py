@@ -56,7 +56,7 @@ def respond(db: OrmSession, session_id: str, pm_message: str) -> Any:
 
     repository.add_message(db, session_id, role="pm", content=pm_message)
 
-    history = repository.list_messages(db, session_id)
+    history = repository.list_messages(db, session_id, dialogue_only=True)
     convo = "\n".join(f"{m.role.upper()}: {m.content}" for m in history)
     user = f"{_context_preamble(db, session)}\n\nConversation so far:\n{convo}\n\nRespond as the war-room partner."
     # Phase 3: prepend the unified context-feed (standing policies, documents, agendas).

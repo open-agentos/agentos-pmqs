@@ -104,7 +104,7 @@ def _session_context(db: OrmSession, session: Any) -> str:
         if doc.get("what_your_vote_means"):
             parts.append(f"What the decision means: {doc['what_your_vote_means'][:400]}")
 
-    msgs = repository.list_messages(db, session.id)
+    msgs = repository.list_messages(db, session.id, dialogue_only=True)
     if msgs:
         convo = "\n".join(
             f"{m.role.upper()}: {m.content}" for m in msgs[-24:]  # last 24 turns is plenty

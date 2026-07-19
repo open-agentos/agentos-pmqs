@@ -274,14 +274,45 @@ def add_message(db: OrmSession, session_id: str, *, role: str, content: str) -> 
     return m
 
 
-def list_messages(db: OrmSession, session_id: str) -> list[SessionMessage]:
-    return list(
-        db.scalars(
-            select(SessionMessage)
-            .where(SessionMessage.session_id == session_id)
-            .order_by(SessionMessage.created_at)
-        )
+def add_event(
+    db: OrmSession,
+    session_id: str,
+    *,
+    kind: str,
+    label: str,
+    tab: str | None = None,
+    ref: str | None = None,
+) -> SessionMessage:
+    """Append an activity-log event to the conversation (role='event').
+
+    Events narrate what the system did — a lens run, a generated doc, a committed
+    outcome — so the left conversation is the session's story, not just chat. Stored as
+    a SessionMessage with a JSON payload so no schema changes; `tab` lets the UI make
+    the event click-to-open the matching artifact. Events are EXCLUDED from the LLM
+    prompt (list_messages(dialogue_only=True)) so notifications never pollute reasoning.
+    """
+    payload = {"kind": kind, "label": label, "status": "done"}
+    if tab:
+        payload["tab"] = tab
+    if ref:
+        payload["ref"] = ref
+    return add_message(db, session_id, role="event", content=json.dumps(payload))
+
+
+def list_messages(
+    db: OrmSession, session_id: str, *, dialogue_only: bool = False
+) -> list[SessionMessage]:
+    """Session messages in order. `dialogue_only=True` drops role='event' rows — used
+    by every path that feeds the conversation to an LLM, so the activity log stays a UI
+    concern and never leaks into the model's context."""
+    stmt = (
+        select(SessionMessage)
+        .where(SessionMessage.session_id == session_id)
+        .order_by(SessionMessage.created_at)
     )
+    if dialogue_only:
+        stmt = stmt.where(SessionMessage.role != "event")
+    return list(db.scalars(stmt))
 
 
 # --- Outcomes ---
