@@ -22,7 +22,12 @@ _SYSTEM = (
     "is actually true from the evidence — not to argue for the sake of arguing, and not "
     "to play devil's advocate theater. Be concise and decision-oriented: the PM leads "
     "and decides. Ask sharp questions, point out what the evidence does and doesn't "
-    "support, and name real trade-offs. Keep replies to a few sentences."
+    "support, and name real trade-offs. Keep replies to a few sentences.\n"
+    "Format replies in Markdown (bold, bullet lists, `code`). When you refer to a "
+    "specific source — an issue, PR, run, document, or news item — cite it and, when a "
+    "URL for it is given in the context, link to it with a Markdown link like "
+    "[#47](url). Ground claims in the provided evidence rather than asserting them "
+    "uncited; if the evidence doesn't cover something, say so."
 )
 
 _FALLBACK = (
@@ -43,8 +48,13 @@ def _context_preamble(db: OrmSession, session: Any) -> str:
                 parts.append(f"Question detail: {q.description[:500]}")
             ev = q.evidence_list
             if ev:
-                refs = ", ".join(f"{e.get('type','')} {e.get('ref','')}".strip() for e in ev)
-                parts.append(f"Evidence: {refs}")
+                # Present each source with its URL so the model can produce real links.
+                lines = []
+                for e in ev:
+                    ref = f"{e.get('type','')} {e.get('ref','')}".strip()
+                    url = (e.get("url") or "").strip()
+                    lines.append(f"- {ref} — {url}" if url else f"- {ref}")
+                parts.append("Sources (cite these; link when a URL is given):\n" + "\n".join(lines))
     return "\n".join(parts)
 
 

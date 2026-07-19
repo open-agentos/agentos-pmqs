@@ -60,3 +60,22 @@ def test_active_policy_reaches_warroom_prompt(db, monkeypatch):
     warroom.respond(db, sess.id, "should we ship now?")
     assert "STANDING POLICIES" in captured["user"]
     assert "NEVER ship on Fridays" in captured["user"]
+
+
+def test_system_prompt_asks_to_link_sources():
+    from pmqs.warroom import _SYSTEM
+    low = _SYSTEM.lower()
+    assert "markdown" in low
+    assert "link" in low and "url" in low
+
+
+def test_context_preamble_includes_source_urls(db):
+    from pmqs import warroom
+    q = repository.create_question(
+        db, title="Ship #47?", source="system",
+        evidence=[{"type": "issue", "ref": "#47", "url": "https://gh/o/r/issues/47"}],
+    )
+    sess = repository.open_session(db, topic="t", question_id=q.id)
+    preamble = warroom._context_preamble(db, sess)
+    assert "https://gh/o/r/issues/47" in preamble
+    assert "Sources" in preamble

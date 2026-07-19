@@ -21,6 +21,7 @@ from typing import Any
 
 from pmqs import config
 from pmqs.web import logo
+from pmqs.web.markdown import render_markdown as _render_markdown
 
 # --- Live wiring JS: injected into rendered pages so the template's buttons call the
 # real backend endpoints instead of the demo's client-side stubs. Uses classic form
@@ -640,6 +641,10 @@ def _msg_html(m: Any) -> str:
     cls = "pm" if role == "pm" else "system"
     label = "You" if role == "pm" else ("System" if role == "system" else "War-room")
     bubble = "pm-bubble" if role == "pm" else "sys-bubble"
+    # PM turns are user input → escape as plain text. The war-room reply (and system
+    # notes) are Markdown → render the safe subset so bold/lists/source links show.
+    raw = getattr(m, "content", "")
+    body = html.escape(raw) if role == "pm" else _render_markdown(raw)
     # #109: avatar + .msg-col are new children of .msg. Safe because _CONVO_RE replaces
     # the whole .convo-scroll region -- it anchors on that class and .convo-input, not on
     # anything inside a message. The template's CSS is changed in the same commit.
@@ -647,7 +652,7 @@ def _msg_html(m: Any) -> str:
         f'<div class="msg {cls}">'
         f'<div class="msg-avatar">{html.escape(_initials(label))}</div>'
         f'<div class="msg-col"><div class="msg-label">{label}</div>'
-        f'<div class="msg-body {bubble}">{html.escape(getattr(m, "content", ""))}</div>'
+        f'<div class="msg-body {bubble}">{body}</div>'
         f"</div></div>"
     )
 
