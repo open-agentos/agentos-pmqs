@@ -402,6 +402,14 @@ textarea.set-input{min-height:64px;}
 .bar.hot{background:linear-gradient(to top, var(--accent-gold-dim), var(--accent-gold));}
 .bar-lbl{font-size:10px;color:var(--text-muted);font-family:var(--font-mono);}
 
+/* draft tab (Wave 2) — reuses existing tokens; no new palette */
+.draft-empty{color:var(--text-muted);font-size:12.5px;line-height:1.6;}
+.draft-field{margin-bottom:14px;}
+.draft-field-label{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--text-muted);margin-bottom:5px;}
+.draft-input,.draft-textarea{width:100%;box-sizing:border-box;background:var(--bg-surface);border:1px solid var(--border-default);color:var(--text-primary);border-radius:6px;padding:9px 11px;font-size:13px;font-family:inherit;}
+.draft-textarea{min-height:140px;resize:vertical;line-height:1.55;}
+.draft-note{font-size:11.5px;color:var(--text-muted);margin-bottom:10px;}
+.draft-actions{display:flex;gap:8px;margin-top:4px;}
 /* outcome bar */
 .outcome-bar{border-top:1px solid var(--border-default);background:var(--bg-surface);padding:14px 26px;flex-shrink:0;}
 .outcome-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
@@ -655,6 +663,7 @@ textarea.set-input{min-height:64px;}
               <div class="a-tab" data-tab="evidence" onclick="showTab('evidence')">Evidence</div>
               <div class="a-tab" data-tab="chart" onclick="showTab('chart')">Impacts</div>
               <div class="a-tab" data-tab="proposed" onclick="showTab('proposed')">Proposed questions</div>
+              <div class="a-tab" data-tab="draft" onclick="showTab('draft')">Draft</div>
             </div>
             <div class="artifact-body">
               <div id="tab-doc">
@@ -727,6 +736,11 @@ textarea.set-input{min-height:64px;}
                     <button class="p-add" onclick="acceptProposed(this)">+ Add to inbox</button>
                     <button class="p-dismiss" onclick="this.closest('.proposed-item').remove()">Dismiss</button>
                   </div>
+                </div>
+              </div>
+              <div id="tab-draft" style="display:none;padding:18px;">
+                <div id="draft-body">
+                  <div class="draft-empty">No draft yet. Pick an outcome below — Raise issue, Draft document, Schedule meeting, Save policy, or New question — and PMQs drafts it from this session for you to edit before committing.</div>
                 </div>
               </div>
             </div>
@@ -853,7 +867,7 @@ document.querySelectorAll('.nav-item').forEach(n=>{
 function showTab(name){
   document.querySelectorAll('.a-tab').forEach(t=>t.classList.remove('active'));
   document.querySelector('.a-tab[data-tab="'+name+'"]').classList.add('active');
-  ['doc','evidence','chart','proposed'].forEach(id=>{
+  ['doc','evidence','chart','proposed','draft'].forEach(id=>{
     document.getElementById('tab-'+id).style.display = (id===name) ? 'block':'none';
   });
 }

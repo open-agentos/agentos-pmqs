@@ -67,3 +67,16 @@ def test_outcome_bar_uses_inline_fetch_receipt(db):
     assert "/outcome'," in out and "fetch(" in out
     # The old form-submit path for outcomes is gone.
     assert "pmqsPost('/workspace/'+PMQS_SID+'/outcome'" not in out
+
+
+def test_draft_tab_and_draft_first_wiring(db):
+    # Wave 2: the war room has an editable Draft tab and the outcome buttons are
+    # draft-first (draft → edit → commit), not one-shot.
+    sess = repository.open_session(db, topic="draft wiring")
+    out = render_workspace(sess, [], [], [], None)
+    assert 'id="tab-draft"' in out and 'id="draft-body"' in out
+    assert 'data-tab="draft"' in out
+    assert "function pmqsDraft" in out
+    assert "function pmqsRenderDraft" in out
+    assert "function pmqsCommitOutcome" in out
+    assert "function addOutcome(type){ pmqsDraft(type); }" in out

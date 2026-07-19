@@ -559,7 +559,7 @@ _TAB_EVID_RE = re.compile(
     r'(<div id="tab-evidence"[^>]*>)(.*?)(</div>\s*<div id="tab-proposed")', re.DOTALL
 )
 _TAB_PROP_RE = re.compile(
-    r'(<div id="tab-proposed"[^>]*>)(.*?)(</div>\s*</div>\s*</div>\s*</div>)', re.DOTALL
+    r'(<div id="tab-proposed"[^>]*>)(.*?)(</div>\s*<div id="tab-draft")', re.DOTALL
 )
 _STATS_RE = re.compile(r'(<span class="session-stats">).*?(</span>)', re.DOTALL)
 
@@ -782,41 +782,84 @@ function pmqsOutcomeReceipt(text, url, linkLabel, ok){{
   }}
   log.appendChild(span);
 }}
-var PMQS_OUTCOME_LABELS = {{issue:'Issue title', policy:'Policy — the standing rule', document:'Document title', meeting:'Meeting title', question:'Question'}};
-function addOutcome(type, label){{
-  // Wave 1 interim: a minimal title input. Wave 2 replaces this prompt with a
-  // draft generated from the session context in an editable Draft tab.
-  var title = label;
-  if(!title){{
-    title = window.prompt((PMQS_OUTCOME_LABELS[type] || 'Title') + ':');
-    if(title === null) return;   // cancelled
-    title = title.trim();
-    if(!title) return;           // empty — nothing to create
-  }}
+var PMQS_FIELD_LABELS = {{title:'Title', body:'Body', agenda:'Agenda', text:'Standing rule'}};
+
+// Commit an outcome with its (edited) fields → Wave 1 receipt.
+function pmqsCommitOutcome(type, fields){{
   var body = new URLSearchParams();
-  body.set('type', type); body.set('title', title);
-  if(type === 'policy') body.set('body', title);  // policy is free-form text
+  body.set('type', type);
+  if(fields.title) body.set('title', fields.title);
+  if(fields.body) body.set('body', fields.body);
+  if(fields.agenda) body.set('agenda', fields.agenda);
+  if(type === 'policy') body.set('body', fields.text || fields.body || fields.title || '');
   fetch('/workspace/'+PMQS_SID+'/outcome', {{
-    method:'POST',
-    headers:{{'Content-Type':'application/x-www-form-urlencoded'}},
-    body: body.toString()
+    method:'POST', headers:{{'Content-Type':'application/x-www-form-urlencoded'}}, body: body.toString()
   }}).then(function(r){{ return r.json().then(function(j){{ return {{ok:r.ok, j:j}}; }}); }})
     .then(function(res){{
-      if(!res.ok){{
-        pmqsOutcomeReceipt('✕ ' + ((res.j && res.j.error) || ('could not create ' + type)), null, null, false);
-        return;
-      }}
-      var j = res.j;
       var tname = type.charAt(0).toUpperCase()+type.slice(1);
-      var loc = j.location || {{}};
-      pmqsOutcomeReceipt('✓ ' + tname + ' created — ' + (j.title || title), loc.url, loc.label, true);
+      if(!res.ok){{ pmqsOutcomeReceipt('✕ ' + ((res.j && res.j.error) || ('could not create ' + type)), null, null, false); return; }}
+      var j = res.j; var loc = j.location || {{}};
+      pmqsOutcomeReceipt('✓ ' + tname + ' created — ' + (j.title || fields.title || ''), loc.url, loc.label, true);
       var badge = document.getElementById('ws-badge');
       if(badge) badge.textContent = (parseInt(badge.textContent||'0',10)||0) + 1;
+      var host = document.getElementById('draft-body');
+      if(host) host.innerHTML = '<div class="draft-empty">' + tname + ' committed. Pick another outcome below to draft again.</div>';
     }})
-    .catch(function(){{
-      pmqsOutcomeReceipt('✕ network error creating ' + type, null, null, false);
-    }});
+    .catch(function(){{ pmqsOutcomeReceipt('✕ network error creating ' + type, null, null, false); }});
 }}
+
+// Render the editable draft into the Draft tab.
+function pmqsRenderDraft(type, fields, degraded){{
+  var host = document.getElementById('draft-body');
+  if(!host) return;
+  host.innerHTML = '';
+  var tname = type.charAt(0).toUpperCase()+type.slice(1);
+  var head = document.createElement('div');
+  head.className = 'draft-note';
+  head.textContent = degraded
+    ? ('Draft ' + tname + ': the model was unreachable — write it yourself, then commit.')
+    : ('Draft ' + tname + ' — generated from this session. Edit anything, then commit.');
+  host.appendChild(head);
+  var inputs = {{}};
+  Object.keys(fields).forEach(function(k){{
+    var wrap = document.createElement('div'); wrap.className = 'draft-field';
+    var lbl = document.createElement('div'); lbl.className = 'draft-field-label';
+    lbl.textContent = PMQS_FIELD_LABELS[k] || k; wrap.appendChild(lbl);
+    var el;
+    if(k === 'title'){{ el = document.createElement('input'); el.className = 'draft-input'; el.type = 'text'; }}
+    else {{ el = document.createElement('textarea'); el.className = 'draft-textarea'; }}
+    el.value = fields[k] || ''; wrap.appendChild(el); host.appendChild(wrap);
+    inputs[k] = el;
+  }});
+  var actions = document.createElement('div'); actions.className = 'draft-actions';
+  var commit = document.createElement('button'); commit.className = 'p-add'; commit.textContent = 'Commit ' + tname;
+  commit.onclick = function(){{
+    var out = {{}}; Object.keys(inputs).forEach(function(k){{ out[k] = inputs[k].value; }});
+    pmqsCommitOutcome(type, out);
+  }};
+  var discard = document.createElement('button'); discard.className = 'p-dismiss'; discard.textContent = 'Discard';
+  discard.onclick = function(){{ host.innerHTML = '<div class="draft-empty">Draft discarded. Pick an outcome below to draft again.</div>'; }};
+  actions.appendChild(commit); actions.appendChild(discard); host.appendChild(actions);
+}}
+
+// Draft-first (Wave 2): generate from context, show in the Draft tab, let the PM edit.
+function pmqsDraft(type){{
+  var host = document.getElementById('draft-body');
+  if(host) host.innerHTML = '<div class="draft-empty">Drafting ' + type + ' from this session…</div>';
+  if(typeof showTab === 'function') showTab('draft');
+  var body = new URLSearchParams(); body.set('type', type);
+  fetch('/workspace/'+PMQS_SID+'/draft', {{
+    method:'POST', headers:{{'Content-Type':'application/x-www-form-urlencoded'}}, body: body.toString()
+  }}).then(function(r){{ return r.json(); }})
+    .then(function(j){{
+      if(j && j.fields){{ pmqsRenderDraft(j.type || type, j.fields, !!j.degraded); }}
+      else if(host){{ host.innerHTML = '<div class="draft-empty">Could not draft ' + type + '.</div>'; }}
+    }})
+    .catch(function(){{ if(host){{ host.innerHTML = '<div class="draft-empty">Network error drafting ' + type + '.</div>'; }} }});
+}}
+
+// Outcome-bar buttons are now draft-first: draft → edit → commit.
+function addOutcome(type){{ pmqsDraft(type); }}
 // Neutralize the template's client-only acceptProposed (superseded by pmqsAddProposed).
 function acceptProposed(btn){{ /* handled by pmqsAddProposed */ }}
 // Land on the Workspace view when arriving at this page.
