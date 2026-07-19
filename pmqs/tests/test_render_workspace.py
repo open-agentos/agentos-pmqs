@@ -120,3 +120,13 @@ def test_async_action_client_wiring(db):
     # message/lenses/doc no longer use the full-page form-submit helper
     assert "pmqsPost('/workspace/'+PMQS_SID+'/message'" not in out
     assert "pmqsPost('/workspace/'+PMQS_SID+'/run-lenses'" not in out
+
+
+def test_draft_path_narrates_and_pane_busy(db):
+    # Interplay Wave 3: draft path logs a click-to-open "ready" event; pane shows busy.
+    sess = repository.open_session(db, topic="w3 wiring")
+    out = render_workspace(sess, [], [], [], None)
+    assert "function pmqsPaneBusy" in out
+    assert "tabs-busy" in out
+    assert "draft ready — review and commit" in out
+    assert "pmqsPaneBusy(true)" in out

@@ -131,3 +131,12 @@ def test_convo_anchor_classes_and_order_survive(convo):
     assert 'class="convo-scroll"' in convo
     assert 'class="convo-input"' in convo
     assert convo.index('class="convo-scroll"') < convo.index('class="convo-input"')
+
+
+def test_tabs_busy_spinner_has_css_rule():
+    # Wave 3: the artifact-pane busy class must be styled or it renders nothing.
+    from pathlib import Path
+    tmpl = Path(__file__).resolve().parents[1] / "pmqs" / "web" / "templates" / "app.html"
+    css = tmpl.read_text(encoding="utf-8")
+    assert ".artifact-tabs.tabs-busy" in css
+    assert "@keyframes pmqs-spin" in css

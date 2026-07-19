@@ -819,6 +819,11 @@ function pmqsAppendHTML(htmlStr){{
 function pmqsBusy(on){{
   var pane=document.querySelector('.convo-pane'); if(pane) pane.classList.toggle('convo-busy', !!on);
 }}
+// Mirror the busy state on the artifact pane (Wave 3): a spinner in the tab bar while
+// the right side is generating a draft or position document.
+function pmqsPaneBusy(on){{
+  var tabs=document.querySelector('.artifact-tabs'); if(tabs) tabs.classList.toggle('tabs-busy', !!on);
+}}
 // A transient busy line in the conversation; returns the node so it can be replaced.
 function pmqsBusyLine(text){{
   return pmqsAppendHTML('<div class="msg event"><div class="event-line"><span class="event-spinner"></span>'+text+'</div></div>');
@@ -872,7 +877,7 @@ function pmqsRunLenses(){{
     .finally(function(){{ pmqsBusy(false); }});
 }}
 function pmqsGenDoc(){{
-  pmqsBusy(true);
+  pmqsBusy(true); pmqsPaneBusy(true);
   var busy = pmqsBusyLine('Generating position document…');
   pmqsAjax('/workspace/'+PMQS_SID+'/position-doc', {{}})
     .then(function(res){{
@@ -881,7 +886,7 @@ function pmqsGenDoc(){{
       else pmqsAppendHTML('<div class="msg event"><div class="event-line">✕ generation failed</div></div>');
     }})
     .catch(function(){{ if(busy) busy.remove(); }})
-    .finally(function(){{ pmqsBusy(false); }});
+    .finally(function(){{ pmqsBusy(false); pmqsPaneBusy(false); }});
 }}
 function pmqsAddProposed(qid, btn){{ pmqsPost('/workspace/'+PMQS_SID+'/proposed/'+qid+'/add', {{}}); }}
 // Outcome bar → real typed-outcome endpoint, rendered INLINE (no navigation).
@@ -977,17 +982,28 @@ function pmqsRenderDraft(type, fields, degraded){{
 // Draft-first (Wave 2): generate from context, show in the Draft tab, let the PM edit.
 function pmqsDraft(type){{
   var host = document.getElementById('draft-body');
+  var tname = type.charAt(0).toUpperCase()+type.slice(1);
   if(host) host.innerHTML = '<div class="draft-empty">Drafting ' + type + ' from this session…</div>';
   if(typeof showTab === 'function') showTab('draft');
+  // Interplay Wave 3: the draft path narrates itself in the conversation, with a busy
+  // line that resolves into a click-to-open "draft ready" event.
+  pmqsPaneBusy(true);
+  var busy = (typeof pmqsBusyLine === 'function') ? pmqsBusyLine('Drafting ' + type + ' from this session…') : null;
   var body = new URLSearchParams(); body.set('type', type);
   fetch('/workspace/'+PMQS_SID+'/draft', {{
     method:'POST', headers:{{'Content-Type':'application/x-www-form-urlencoded'}}, body: body.toString()
   }}).then(function(r){{ return r.json(); }})
     .then(function(j){{
-      if(j && j.fields){{ pmqsRenderDraft(j.type || type, j.fields, !!j.degraded); }}
-      else if(host){{ host.innerHTML = '<div class="draft-empty">Could not draft ' + type + '.</div>'; }}
+      if(busy) busy.remove();
+      if(j && j.fields){{
+        pmqsRenderDraft(j.type || type, j.fields, !!j.degraded);
+        if(typeof pmqsAppendHTML === 'function')
+          pmqsAppendHTML('<div class="msg event event-open" onclick="showTab(\\'draft\\')" title="Open the artifact">'
+            + '<div class="event-line">✎ ' + tname + ' draft ready — review and commit</div></div>');
+      }} else if(host){{ host.innerHTML = '<div class="draft-empty">Could not draft ' + type + '.</div>'; }}
     }})
-    .catch(function(){{ if(host){{ host.innerHTML = '<div class="draft-empty">Network error drafting ' + type + '.</div>'; }} }});
+    .catch(function(){{ if(busy) busy.remove(); if(host){{ host.innerHTML = '<div class="draft-empty">Network error drafting ' + type + '.</div>'; }} }})
+    .finally(function(){{ pmqsPaneBusy(false); }});
 }}
 
 // Outcome-bar buttons are now draft-first: draft → edit → commit.
