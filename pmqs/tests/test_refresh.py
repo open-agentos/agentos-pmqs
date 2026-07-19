@@ -147,9 +147,11 @@ def test_news_promoted_reports_count(db, monkeypatch):
     import pmqs.news.fetch as F
     import pmqs.news.relevance as REL
     import pmqs.refresh as R
-    monkeypatch.setattr(F, "ingest", lambda db, cfg=None: [object()])
+    from pmqs.news.relevance import NewsDiag
     monkeypatch.setattr(R.llm, "is_enabled", lambda: True)
-    monkeypatch.setattr(REL, "promote_relevant", lambda db, cfg=None: [object(), object(), object()])
+    monkeypatch.setattr(F, "ingest", lambda db, cfg=None: [object()])
+    monkeypatch.setattr(REL, "promote_relevant_reported",
+                        lambda db, cfg=None: ([object(), object(), object()], NewsDiag(judged=3, promoted=3)))
     _patch_repo(monkeypatch)
     rep = refresh_all(db)
     assert rep.news.code == "promoted"
@@ -157,20 +159,58 @@ def test_news_promoted_reports_count(db, monkeypatch):
     assert rep.total >= 3
 
 
-def test_news_nothing_relevant_when_items_judged_but_none_clear(db, monkeypatch):
+def test_news_nothing_relevant_shows_the_top_score(db, monkeypatch):
     p = products.get_or_create_default_product(db)
     settings.set_news_config(db, api_key_raw="k", min_relevance=0.9)
     products.set_news_config(db, p, watchlist={"keywords": ["agents"]})
-    # Put a real unprocessed item in the store so `pending` > 0, but promote returns none.
-    repository.create_news_item(db, url="http://x/1", title="t", source_label="s",
-                                summary=None, published_at=None, product_id=p.id)
     import pmqs.news.fetch as F
     import pmqs.news.relevance as REL
     import pmqs.refresh as R
-    monkeypatch.setattr(F, "ingest", lambda db, cfg=None: [])
+    from pmqs.news.relevance import NewsDiag
     monkeypatch.setattr(R.llm, "is_enabled", lambda: True)
-    monkeypatch.setattr(REL, "promote_relevant", lambda db, cfg=None: [])
+    monkeypatch.setattr(F, "ingest", lambda db, cfg=None: [])
+    # judged 8, best item only reached 0.42 — below the 0.9 bar
+    monkeypatch.setattr(REL, "promote_relevant_reported",
+                        lambda db, cfg=None: ([], NewsDiag(judged=8, top_relevance=0.42, products_with_items=1)))
     _patch_repo(monkeypatch)
     rep = refresh_all(db)
     assert rep.news.code == "nothing_relevant"
-    assert "judged 1" in rep.news.detail
+    assert "judged 8" in rep.news.detail
+    assert "0.42" in rep.news.detail          # the top score, so the PM can tune the bar
+
+
+def test_news_missing_profile_is_called_out(db, monkeypatch):
+    p = products.get_or_create_default_product(db)
+    settings.set_news_config(db, api_key_raw="k")
+    products.set_news_config(db, p, watchlist={"keywords": ["agents"]})
+    import pmqs.news.fetch as F
+    import pmqs.news.relevance as REL
+    import pmqs.refresh as R
+    from pmqs.news.relevance import NewsDiag
+    monkeypatch.setattr(R.llm, "is_enabled", lambda: True)
+    monkeypatch.setattr(F, "ingest", lambda db, cfg=None: [object()])
+    # items judged, but the (only) product with items had no profile to judge against
+    monkeypatch.setattr(REL, "promote_relevant_reported",
+                        lambda db, cfg=None: ([], NewsDiag(judged=5, products_with_items=1, products_missing_profile=1)))
+    _patch_repo(monkeypatch)
+    rep = refresh_all(db)
+    assert rep.news.code == "no_profile"       # actionable cause, not a flat "nothing relevant"
+
+
+def test_news_llm_error_is_not_disguised_as_nothing_relevant(db, monkeypatch):
+    p = products.get_or_create_default_product(db)
+    settings.set_news_config(db, api_key_raw="k")
+    products.set_news_config(db, p, watchlist={"keywords": ["agents"]})
+    import pmqs.news.fetch as F
+    import pmqs.news.relevance as REL
+    import pmqs.refresh as R
+    from pmqs.news.relevance import NewsDiag
+    monkeypatch.setattr(R.llm, "is_enabled", lambda: True)
+    monkeypatch.setattr(F, "ingest", lambda db, cfg=None: [object()])
+    # the relevance call failed on every chunk → judged nothing
+    monkeypatch.setattr(REL, "promote_relevant_reported",
+                        lambda db, cfg=None: ([], NewsDiag(judged=0, llm_error="Expecting value: line 1", products_with_items=1)))
+    _patch_repo(monkeypatch)
+    rep = refresh_all(db)
+    assert rep.news.code == "news_llm_error"
+    assert "Expecting value" in rep.news.detail

@@ -31,7 +31,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session as OrmSession
 
-from pmqs import config, llm, products, repository, settings
+from pmqs import config, llm, products, settings
 from pmqs.agentos_client import AgentOSClient, AgentOSClientError
 from pmqs.pipeline import generate
 
@@ -130,7 +130,7 @@ def _refresh_news(db: OrmSession) -> SourceResult:
     chain — key, watchlist, provider, relevance — stopped the flow.
     """
     from pmqs.news.fetch import ingest
-    from pmqs.news.relevance import promote_relevant
+    from pmqs.news.relevance import promote_relevant_reported
 
     cfg = settings.get_news_config(db)
     if not cfg.get("enabled", True):
@@ -165,14 +165,7 @@ def _refresh_news(db: OrmSession) -> SourceResult:
             f"fetched {n_fetched} item{'s' if n_fetched != 1 else ''}; no LLM provider to judge relevance",
         )
 
-    # Everything the promote pass will judge = new fetches + any prior backlog.
-    pending = len(repository.list_news_items(db, unprocessed_only=True))
-    try:
-        promoted = promote_relevant(db, cfg)
-    except Exception as exc:  # defensive: promote is meant to be no-raise
-        log.warning("refresh: news promote raised: %s", exc)
-        settings.record_news_run(db, promoted=0)
-        return SourceResult("error", 0, _clip(str(exc)))
+    promoted, diag = promote_relevant_reported(db, cfg)
     n_promoted = len(promoted)
     settings.record_news_run(db, promoted=n_promoted)
 
@@ -181,13 +174,21 @@ def _refresh_news(db: OrmSession) -> SourceResult:
             "promoted", n_promoted,
             f"from {n_fetched} newly fetched item{'s' if n_fetched != 1 else ''}",
         )
-    if pending == 0:
-        return SourceResult("nothing_new", 0, "no new stories for your watchlist")
-    threshold = cfg.get("min_relevance", 0.5)
-    return SourceResult(
-        "nothing_relevant", 0,
-        f"judged {pending} item{'s' if pending != 1 else ''}; none cleared the {threshold} relevance bar",
-    )
+
+    # Zero promoted — the diagnostic tells the three cases apart instead of a flat
+    # "nothing relevant" that also hides LLM failures and missing profiles.
+    if diag.llm_error and diag.judged == 0:
+        return SourceResult("news_llm_error", 0, _clip(diag.llm_error))
+    if diag.products_with_items and diag.products_missing_profile == diag.products_with_items:
+        return SourceResult("no_profile")
+    if diag.judged:
+        threshold = cfg.get("min_relevance", 0.5)
+        top = f"top item scored {diag.top_relevance:.2f}" if diag.top_relevance is not None else "none scored"
+        return SourceResult(
+            "nothing_relevant", 0,
+            f"judged {diag.judged} item{'s' if diag.judged != 1 else ''}; {top}, below the {threshold} bar",
+        )
+    return SourceResult("nothing_new", 0, "no new stories for your watchlist")
 
 
 # ------------------------------------------------------------------ orchestrator
