@@ -548,6 +548,10 @@ _REPO_LINES = {
     "generated": ("ok", "Repo: {count} new from structural triggers."),
     "clean": ("ok", "Repo: nothing to raise — {detail}."),
     "error": ("warn", "Repo: couldn't read the repo — {detail}."),
+    # Website-only product: no repo is a valid, working state, so this stays teal
+    # (ok), not amber, and gently invites connecting one (build-spec §7 / §14.4).
+    "no_repo": ("ok", "Repo: no repository connected — connect one in this product's "
+                      "Settings to add structural signals (stale issues, label conflicts)."),
 }
 _NEWS_LINES = {
     "promoted": ("ok", "News: {count} new — {detail}."),

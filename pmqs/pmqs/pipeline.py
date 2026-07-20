@@ -82,6 +82,11 @@ def seed_workspace(db: OrmSession, product) -> list:
 
     if product is None:
         return []
+    # A website-only product has no structural source to seed from. Skip cleanly rather
+    # than building AgentOSClient(repo="") and letting the gh call fail -- the inbox
+    # seeds from news on the next Refresh (build-spec-optional-repo-onramp §7).
+    if not product.has_repo:
+        return []
     try:
         state = AgentOSClient(repo=product.full_name).get_state()
     except AgentOSClientError:

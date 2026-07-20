@@ -103,6 +103,16 @@ def _refresh_repo(db: OrmSession, *, product_id: str | None, repo: str | None) -
     A `gh`/client failure becomes a legible `error` result (with the CLI's own
     message) instead of a 500 — the old endpoint let AgentOSClientError escape.
     """
+    # A scoped product with no repo attached has no structural source. Skip it entirely
+    # and make ZERO gh calls -- do NOT fall through to the `repo=None` branch, which
+    # targets config.AGENTOS_REPO and would scan the default repo, misattributing its
+    # issues to this website-only product (build-spec-optional-repo-onramp §5). This is
+    # distinct from the legacy unprefixed mount (product_id=None), which still defaults.
+    if product_id is not None:
+        scoped = products.get_product(db, product_id)
+        if scoped is not None and not scoped.has_repo:
+            return SourceResult("no_repo")
+
     try:
         state = AgentOSClient(repo=repo).get_state() if repo else AgentOSClient().get_state()
     except AgentOSClientError as exc:
