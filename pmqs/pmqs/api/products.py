@@ -47,28 +47,40 @@ async def add_product(request: Request, db: OrmSession = Depends(get_session)):
     repo = (form.get("repo") or "").strip()
     display_name = (form.get("display_name") or "").strip()
     nickname = (form.get("nickname") or "").strip()
+    website = (form.get("website") or "").strip()
 
-    try:
-        org, repo_name = products.parse_repo_ref(repo)
-    except ValueError:
-        # Re-render the create form with everything the PM already entered and reviewed
-        # left intact -- a bad repo ref must NOT throw away the researched fields. The old
-        # behaviour redirected to a blank /products/new, which is exactly what wiped the
-        # reviewed content.
-        return HTMLResponse(
-            render_product_settings(db, None, mode="create", flash="invalid_repo",
-                                    values=dict(form)),
-            status_code=400,
-        )
+    # A repo is now OPTIONAL -- the on-ramp is primarily the product's website and
+    # details, with GitHub as the first optional connector
+    # (docs/build-spec-optional-repo-onramp.md §3/§6). So:
+    #   empty repo     -> a website-only Product (org/repo NULL), always newly created
+    #   'org/repo'     -> resolve-or-create by (org, repo), shared-Product case intact
+    #   malformed repo -> inline 400, reviewed fields preserved (a typo, not an omission)
+    org = repo_name = None
+    if repo:
+        try:
+            org, repo_name = products.parse_repo_ref(repo)
+        except ValueError:
+            # A bad repo ref must NOT throw away the researched/reviewed fields. An EMPTY
+            # repo is not a bad ref -- it never reaches here -- so this only fires on a
+            # genuine typo.
+            return HTMLResponse(
+                render_product_settings(db, None, mode="create", flash="invalid_repo",
+                                        values=dict(form)),
+                status_code=400,
+            )
 
     # Did this repo already exist? get_or_create_product would resolve to it silently;
     # we need to know BEFORE, so we don't write this PM's researched watchlist/profile
-    # over a colleague's existing product (the shared-Product resolve case).
-    created = products.get_product_by_org_repo(db, org, repo_name) is None
+    # over a colleague's existing product (the shared-Product resolve case). A website-
+    # only product has no (org, repo) key, so it is always newly created.
+    created = True
+    if org and repo_name:
+        created = products.get_product_by_org_repo(db, org, repo_name) is None
 
     product = products.get_or_create_product(
         db, org=org, repo=repo_name,
-        display_name=display_name or repo_name, nickname=nickname or None,
+        display_name=display_name or None, nickname=nickname or None,
+        website=website or None,
     )
 
     # Attach the acting PM to the Product. get_or_create_product resolving to an EXISTING
