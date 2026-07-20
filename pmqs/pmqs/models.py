@@ -150,8 +150,13 @@ class Product(Base):
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
-    org: Mapped[str] = mapped_column(Text, nullable=False)
-    repo: Mapped[str] = mapped_column(Text, nullable=False)
+    # org/repo are nullable: a Product can be website-only, with GitHub attached later
+    # as the first optional connector rather than required up front
+    # (docs/build-spec-optional-repo-onramp.md §4). SQLite treats NULLs as distinct in
+    # UniqueConstraint(org, repo), so any number of repo-less products coexist under the
+    # unchanged constraint.
+    org: Mapped[str | None] = mapped_column(Text)
+    repo: Mapped[str | None] = mapped_column(Text)
     display_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
     accent: Mapped[str | None] = mapped_column(Text)  # small icon/accent hint for the switcher
     slug: Mapped[str | None] = mapped_column(Text)  # url-safe, unique; folded from workspace.slug
@@ -163,7 +168,19 @@ class Product(Base):
 
     @property
     def full_name(self) -> str:
+        """`org/repo`, or `""` for a website-only product with no repo attached.
+
+        Callers build `gh --repo <full_name>` arguments off this, so an unattached
+        product must return empty (falsy) rather than the string "None/None" -- see
+        `has_repo`, which is the predicate refresh/seed gate on.
+        """
+        if not self.org or not self.repo:
+            return ""
         return f"{self.org}/{self.repo}"
+
+    @property
+    def has_repo(self) -> bool:
+        return bool(self.org and self.repo)
 
     @property
     def lens_weights_dict(self) -> dict[str, Any]:

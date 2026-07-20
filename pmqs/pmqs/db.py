@@ -89,6 +89,8 @@ def _apply_light_migrations() -> None:
             _fold_workspace_into_product(conn, insp)
         if "outcomes" in existing_tables:
             _migrate_outcome_active_to_retired_at(conn)
+        if "products" in existing_tables:
+            _migrate_products_relax_repo_notnull(conn)
 
 
 def _migrate_outcome_active_to_retired_at(conn) -> None:
@@ -121,6 +123,57 @@ def _migrate_outcome_active_to_retired_at(conn) -> None:
         {"now": datetime.now(timezone.utc).isoformat()},
     )
     conn.execute(text("ALTER TABLE outcomes DROP COLUMN active"))
+
+
+def _migrate_products_relax_repo_notnull(conn) -> None:
+    """Relax products.org / products.repo from NOT NULL to nullable.
+
+    GitHub stops being a Product's identity (docs/build-spec-optional-repo-onramp.md
+    §4): a product can be website-only, with org/repo NULL and a repo attached later.
+    SQLite has no ALTER COLUMN to drop NOT NULL, so this rebuilds the table (the standard
+    swap: create relaxed twin -> INSERT..SELECT -> drop -> rename), preserving every
+    other column exactly as reflected via PRAGMA rather than hard-coding the schema.
+
+    Idempotent: no-ops once org and repo are already nullable. Fresh DBs never see it --
+    create_all builds the nullable schema straight from the model.
+
+    Safe to DROP/rename `products` despite the product_id foreign keys on other tables:
+    this app never enables `PRAGMA foreign_keys` (SQLite's default is OFF), so those FKs
+    are declarative-only, and after the rename the table name is restored so every
+    reference stays valid. SQLite also treats NULLs as distinct in UNIQUE(org, repo), so
+    the constraint is recreated unchanged and website-only rows don't collide.
+    """
+    from sqlalchemy import text
+
+    info = conn.execute(text("PRAGMA table_info(products)")).fetchall()
+    if not info:
+        return
+    by_name = {row[1]: row for row in info}  # row = (cid, name, type, notnull, dflt, pk)
+    if "org" not in by_name or "repo" not in by_name:
+        return
+    if by_name["org"][3] == 0 and by_name["repo"][3] == 0:
+        return  # already nullable -- nothing to do
+
+    col_defs, col_names = [], []
+    for _cid, name, coltype, notnull, dflt, pk in info:
+        col_names.append(name)
+        parts = [f'"{name}"', coltype or "TEXT"]
+        if pk:
+            parts.append("PRIMARY KEY")
+        if notnull and name not in ("org", "repo"):  # force org/repo nullable, keep the rest
+            parts.append("NOT NULL")
+        if dflt is not None:
+            parts.append(f"DEFAULT {dflt}")
+        col_defs.append(" ".join(parts))
+    col_defs.append('CONSTRAINT uq_products_org_repo UNIQUE ("org", "repo")')
+    col_defs.append('CONSTRAINT uq_products_slug UNIQUE ("slug")')
+
+    names_sql = ", ".join(f'"{n}"' for n in col_names)
+    conn.execute(text("DROP TABLE IF EXISTS products_new"))
+    conn.execute(text(f'CREATE TABLE products_new ({", ".join(col_defs)})'))
+    conn.execute(text(f"INSERT INTO products_new ({names_sql}) SELECT {names_sql} FROM products"))
+    conn.execute(text("DROP TABLE products"))
+    conn.execute(text("ALTER TABLE products_new RENAME TO products"))
 
 
 def _fold_workspace_into_product(conn, insp) -> None:
