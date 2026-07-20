@@ -169,6 +169,9 @@ not a control.
 - Google identity bound to `Member`; invite-only allowlist; bootstrap of the
   existing default member
 - Google OAuth login, session cookie, route guard
+- Standalone logged-out `/login` view with PMQs mark/wordmark, value proposition,
+  Google action target `/auth/google/login`, and no authenticated app navigation.
+  Do not modify the load-bearing authenticated `app.html` shell.
 - Replacement of the `current_member_id()` seam
 - Settings re-scoped to Product; host-provided API keys; per-Product cost guard
 - Isolation + route-guard test suites
@@ -225,6 +228,12 @@ the permission.
 ### §6.2 Google OAuth — one provider, no abstraction
 
 Authlib. `/login` → Google → `/auth/google/callback`.
+
+The logged-out flow is explicit: `/login` is public and renders the minimal login
+view; its Google button targets `/auth/google/login` as a future endpoint. Once
+auth is implemented, unauthenticated requests to protected routes redirect to
+`/login`, while `/login` and `/auth/google/callback` remain public. Authenticated
+requests proceed to the product landing (the existing dogfood root for now).
 
 - Verify the ID token. **Check `email_verified`** — an unverified claim is not an
   identity.
@@ -411,6 +420,7 @@ This repo already runs drift guards of exactly this shape (`test_brand_doc.py`,
 | **P5.0** | Prereqs | Deployment D1–D3 green; #78 resolved or the news cron refuses multi-Product start |
 | **P5.1** | Identity schema | `Member` identity columns + `invite` table + migration. No login yet; seam still returns default. Suite green |
 | **P5.2** | Login | Google OAuth, session, guard, invite flow, bootstrap binding. Seam reads the cookie. §7.1 tests pass |
+| **P5.2a** | Logged-out view | Public `/login` is separate from `app.html`, has no rail/navigation, and the post-auth flow is protected routes → `/login`, public login/callback, authenticated requests → product landing |
 | **P5.3** | Settings + keys | Settings Product-scoped; `resolve_key` in place at every call site; cost guard enforcing |
 | **P5.4** | Guards | §7.3 isolation suite + §7.4 route-guard test green in CI |
 | **P5.5** | Cutover | Deployed; you log in as yourself against your own historical data; one invited friend logs in and sees nothing of yours |

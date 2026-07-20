@@ -116,6 +116,24 @@ display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
 </head><body><div class="box"><h1>{status}</h1><div>{html.escape(message)}</div>
 <div style="margin-top:16px"><a href="/">← Back to Inbox</a></div></div></body></html>"""
 
+
+def render_login() -> str:
+    """Standalone logged-out view; intentionally does not use app.html."""
+    mark = logo.logo_svg(56, title=None)
+    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in — PMQs</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg"><style>
+:root{{--canvas:#f8f0dc;--surface:#fefcf4;--ink:#231409;--muted:#6b4728;--border:#d6c09a;--display:Georgia,serif;--body:ui-sans-serif,system-ui,sans-serif}}
+*{{box-sizing:border-box}}body{{margin:0;min-height:100vh;background:var(--canvas);color:var(--ink);font-family:var(--body);display:flex;flex-direction:column}}
+main{{flex:1;display:grid;place-items:center;padding:48px 24px}}.login-card{{width:min(100%,400px);text-align:center}}
+.brand{{display:inline-flex;align-items:center;gap:12px;color:var(--ink);text-decoration:none}}.brand-name{{font:600 30px/1 var(--display);letter-spacing:-.03em}}
+h1{{margin:34px 0 10px;font:500 34px/1.12 var(--display)}}.value{{margin:0 auto 30px;max-width:330px;color:var(--muted);font-size:14px;line-height:1.65}}
+.google{{display:flex;align-items:center;justify-content:center;gap:11px;width:100%;min-height:50px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);font:600 14px var(--body);text-decoration:none;box-shadow:0 2px 7px #6b472812}}.google span{{font-weight:800;color:#4285f4;font-size:18px}}
+footer{{padding:24px;text-align:center;color:var(--muted);font-size:11px}}footer a{{color:inherit}}
+</style></head><body><main><section class="login-card" aria-labelledby="login-title"><a class="brand" href="/" aria-label="PMQs home">{mark}<span class="brand-name">PMQs</span></a>
+<h1 id="login-title">Make better product decisions.</h1><p class="value">PMQs turns scattered signals into a clear, evidence-backed product view.</p>
+<a class="google" href="/auth/google/login" aria-label="Continue with Google"><span aria-hidden="true">G</span>Continue with Google</a></section></main><footer>© 2026 PMQs · <a href="#">Privacy</a></footer></body></html>'''
+
 # --- Inbox (Phase 0): region from quick-add close to the inbox-wrap close. ---
 # The template's placeholder for the mark. logo.py is the single source; see
 # TEMPLATE-CONTRACT.md. Every render path loads through _load_template() so the
