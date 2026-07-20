@@ -22,6 +22,40 @@ def _slugify(text: str) -> str:
     return slug or "product"
 
 
+def _host(website: str | None) -> str:
+    """Bare hostname of a website URL ('https://www.acme.io/x' -> 'acme.io'), or ''.
+
+    Used as a slug/display fallback for a website-only product that gave no nickname
+    or display name. Best-effort and dependency-free -- a junk value just yields ''.
+    """
+    if not website:
+        return ""
+    s = website.strip()
+    for scheme in ("https://", "http://"):
+        if s.lower().startswith(scheme):
+            s = s[len(scheme):]
+            break
+    s = s.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    if s.lower().startswith("www."):
+        s = s[4:]
+    return s.strip()
+
+
+def _base_slug(*, nickname: str | None, display_name: str | None,
+               website: str | None, repo: str | None) -> str:
+    """Slug seed for a new Product, in preference order.
+
+    Repo is no longer guaranteed (build-spec-optional-repo-onramp §4), so a website-only
+    product still gets a stable, human-ish slug: nickname -> display name -> website
+    host -> repo -> the _slugify 'product' fallback. The slug never moves after creation,
+    so this only ever runs once per product.
+    """
+    for candidate in (nickname, display_name, _host(website), repo):
+        if candidate and candidate.strip():
+            return _slugify(candidate)
+    return "product"
+
+
 def parse_repo_ref(ref: str) -> tuple[str, str]:
     """Split a repo reference into (org, repo).
 
@@ -64,28 +98,39 @@ def _next_free_slug(db: OrmSession, base_slug: str) -> str:
 def get_or_create_product(
     db: OrmSession,
     *,
-    org: str,
-    repo: str,
+    org: str | None = None,
+    repo: str | None = None,
     display_name: str | None = None,
     nickname: str | None = None,
+    website: str | None = None,
     lens_weights: dict[str, Any] | None = None,
 ) -> Product:
     """Resolve a Product by (org, repo), creating it if this is the first PM to add it.
 
-    This is what lets two different PMs add the same repo and end up as Members of
-    the SAME Product (see members.ensure_membership) rather than each getting their
-    own disconnected copy.
+    When org/repo are given, resolving to an EXISTING row is what lets two PMs add the
+    same repo and end up as Members of the SAME Product (see members.ensure_membership)
+    rather than each getting their own disconnected copy.
+
+    When org/repo are BOTH absent this is a website-only product
+    (build-spec-optional-repo-onramp §3): there is no natural key to resolve on, so we
+    always create a fresh row. Two PMs each adding the same site with no repo therefore
+    get separate products -- sharing repo-less products waits on invites (§13).
     """
-    existing = db.scalars(
-        select(Product).where(Product.org == org).where(Product.repo == repo)
-    ).first()
-    if existing is not None:
-        return existing
-    base_slug = _slugify(nickname or repo)
+    if org and repo:
+        existing = db.scalars(
+            select(Product).where(Product.org == org).where(Product.repo == repo)
+        ).first()
+        if existing is not None:
+            return existing
+
+    base_slug = _base_slug(nickname=nickname, display_name=display_name,
+                           website=website, repo=repo)
     product = Product(
-        org=org,
-        repo=repo,
-        display_name=display_name or repo,
+        org=org or None,
+        repo=repo or None,
+        # display_name is NOT NULL: fall back through repo -> website host so a
+        # website-only product never lands on an empty name.
+        display_name=display_name or repo or _host(website) or "product",
         nickname=nickname,
         slug=_next_free_slug(db, base_slug),
         lens_weights=json.dumps(lens_weights) if lens_weights is not None else None,
