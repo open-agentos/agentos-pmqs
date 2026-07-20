@@ -1744,16 +1744,22 @@ def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "
     label = "" if creating else html.escape(products_repo.product_display_name(db, product))
 
     if creating:
+        # Website + product details lead; the GitHub repo is demoted to its own optional
+        # section, framed as the first data source you can connect rather than a
+        # precondition for the product existing (build-spec-optional-repo-onramp §8).
         identity = f"""<div class="set-section"><h2>Add a product</h2>
 <div class="set-scope">Give it a website and let PMQs draft the details, or just fill them in. Everything can be changed later.</div>
 {_set_field("Website", "website", fv("website"), placeholder="https://yourproduct.com",
             hint="The product or company home page. We'll read it and pre-fill the fields below \u2014 review before you save.")}
 {_research_button_html()}
-{_set_field("Repository", "repo", fv("repo"), placeholder="org/repo",
-            hint="Paste the GitHub URL or type org/repo. Resolves to the existing product if a colleague already added this repo.")}
 {_set_field("Display name", "display_name", fv("display_name"), placeholder="what it's called")}
 {_set_field("Nickname (optional)", "nickname", fv("nickname"), placeholder="what you call it",
             hint="Shown in the switcher. Sets the URL when the product is created.")}
+</div>
+<div class="set-section"><h2>Connect a repository (optional)</h2>
+<div class="set-scope">The first data source you can plug in. Leave it blank to run on news alone \u2014 you can connect a repo later from this product's Settings.</div>
+{_set_field("Repository", "repo", fv("repo"), placeholder="org/repo",
+            hint="Optional. Connect a GitHub repo to pull structural signals \u2014 stale issues, label conflicts \u2014 into your questions. Paste the URL or type org/repo; resolves to an existing product if a colleague already added this repo.")}
 </div>"""
     else:
         identity = f"""<div class="set-section"><h2>{label}</h2>
@@ -1767,7 +1773,8 @@ def _product_settings_sections(db: Any, product: Any, prefix: str, mode: str = "
             placeholder="what you call it",
             hint=f"Shown in the switcher. The URL stays /w/{product.slug}/ \u2014 it's set when the "
                  "product is created and doesn't move when you rename.")}
-{_set_field("Repository", "repo", html.escape(product.full_name), placeholder="org/repo")}
+{_set_field("Repository", "repo", html.escape(product.full_name), placeholder="org/repo",
+            hint="Optional. Connect a GitHub repo to add structural signals (stale issues, label conflicts). Leaving this blank keeps the current setting \u2014 it won't detach an attached repo.")}
 </div>"""
 
     watchlist = f"""<div class="set-section"><h2>Watchlist</h2>
