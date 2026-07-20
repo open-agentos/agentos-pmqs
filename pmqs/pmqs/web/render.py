@@ -726,28 +726,13 @@ def _msg_html(m: Any) -> str:
 
 
 def _doc_field_text(val: Any) -> str:
-    """A Position Document field's value, normalised to displayable text.
-
-    The schema asks the LLM for a plain string per field (position_doc._SYSTEM), but
-    providers sometimes nest structured content instead -- e.g. `what_your_vote_means`
-    coming back as {'yes_consequence': ..., 'no_consequence': ...} rather than prose.
-    str()-ing that dict rendered its raw Python repr in the UI. Normalise defensively so
-    the doc always shows real content instead of a data structure, regardless of what a
-    given provider/model does on a particular call.
-    """
-    if val is None:
-        return ""
-    if isinstance(val, str):
-        return val
-    if isinstance(val, dict):
-        parts = []
-        for k, v in val.items():
-            label = str(k).replace("_", " ").strip().capitalize()
-            parts.append(f"**{label}:** {_doc_field_text(v)}")
-        return "\n\n".join(parts)
-    if isinstance(val, list):
-        return "\n".join(f"- {_doc_field_text(v)}" for v in val)
-    return str(val)
+    """A Position Document field's value as displayable text. Belt-and-suspenders for the
+    generation-time normalisation (position_doc.normalize_doc_field): the DB should
+    already hold clean strings, but if a raw dict/list ever reaches render (an older
+    persisted doc, a different code path), this flattens it rather than showing a repr.
+    Delegates so the two can't drift."""
+    from pmqs.position_doc import normalize_doc_field
+    return normalize_doc_field(val)
 
 
 def _evidence_html(evidence: list[dict]) -> str:

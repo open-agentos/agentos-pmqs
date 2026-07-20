@@ -163,6 +163,32 @@ def _prior_block(cites: list[dict[str, Any]]) -> str:
     )
 
 
+def normalize_doc_field(val: Any) -> str:
+    """A Position Document field's value, normalised to displayable text.
+
+    The schema (‑SYSTEM) asks the LLM for a plain string per field, but providers
+    sometimes nest structured content instead -- e.g. `what_your_vote_means` coming back
+    as {'yes': ..., 'no': ...} or `background_impact` as {'context': ..., 'market_signal':
+    ...}. The old code did str(value), which serialised the raw Python dict repr into the
+    stored doc -- and once it's a string in the DB, no render-layer fix can recover it.
+    Flattening HERE, at generation time, keeps the persisted doc clean: dict keys become
+    bold sub-labels, lists become bullets. Canonical implementation -- the render layer
+    delegates to this so the two can't drift.
+    """
+    if val is None:
+        return ""
+    if isinstance(val, str):
+        return val
+    if isinstance(val, dict):
+        return "\n\n".join(
+            f"**{str(k).replace('_', ' ').strip().capitalize()}:** {normalize_doc_field(v)}"
+            for k, v in val.items()
+        )
+    if isinstance(val, list):
+        return "\n".join(f"- {normalize_doc_field(v)}" for v in val)
+    return str(val)
+
+
 def generate(db: OrmSession, question: Any, *, member_id: str | None = None) -> dict[str, Any]:
     """Generate the Voter-Guide Position Document for a Question. Never raises for LLM."""
     ev = getattr(question, "evidence_list", None) or getattr(question, "evidence", []) or []
@@ -184,8 +210,10 @@ def generate(db: OrmSession, question: Any, *, member_id: str | None = None) -> 
         result = llm.complete_json(_SYSTEM, user, settings_cfg=_doc_llm_cfg(db), max_tokens=_MAX_TOKENS)
         if not isinstance(result, dict):
             return _fallback(question)
-        # Ensure all sections exist (fill missing with empty string).
-        doc: dict[str, Any] = {k: str(result.get(k, "")) for k in SECTIONS}
+        # Normalise each field: a provider may nest a dict/list where the schema asked
+        # for a string. str() would freeze its Python repr into the DB; normalize_doc_field
+        # flattens it to readable text so the persisted doc is always clean.
+        doc: dict[str, Any] = {k: normalize_doc_field(result.get(k, "")) for k in SECTIONS}
         doc["evidence"] = ev
         # Persisted with the doc so the rendered citations always match the text that was
         # generated against them -- the ledger moves on, the doc is generate-once.

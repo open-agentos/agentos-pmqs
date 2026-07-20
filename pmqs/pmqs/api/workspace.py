@@ -162,25 +162,47 @@ def workspace_position_doc(session_id: str, request: Request, db: OrmSession = D
         return JSONResponse({"error": "not found"}, status_code=404)
     # Generate ONCE: no-op if already present (per resolved Q2).
     generated = False
-    if not sess.position_doc and sess.question_id:
-        q = repository.get_question(db, sess.question_id)
-        if q is not None:
+    no_subject = False
+    if not sess.position_doc:
+        # Prefer the linked inbox question; if the room isn't linked to one (a free-text
+        # war room, or a pseudo-id that never resolved), fall back to the room's own topic
+        # so the button still works instead of silently no-opping. Only when there's
+        # genuinely nothing to generate from do we skip -- and then we SAY so (below)
+        # rather than flashing a busy line and re-rendering the same empty state.
+        q = repository.get_question(db, sess.question_id) if sess.question_id else None
+        subject = q
+        if subject is None and (sess.topic or "").strip():
+            from types import SimpleNamespace
+            subject = SimpleNamespace(
+                title=sess.topic, description="", evidence_list=[], evidence=[],
+                product_id=sess.product_id, lens_tags_list=[],
+            )
+        if subject is not None:
             # member_id so cited prior decisions respect §4 -- a doc must never
             # cite a room the reader isn't allowed to see.
-            doc = position_doc.generate(db, q, member_id=members.current_member_id(db))
+            doc = position_doc.generate(db, subject, member_id=members.current_member_id(db))
             repository.set_position_doc(db, session_id, doc)
             repository.add_event(
                 db, session_id, kind="position_doc",
                 label="✎ Position document generated", tab="doc",
             )
             generated = True
+        else:
+            no_subject = True
     if _wants_json(request):
         import json as _json
         from pmqs.web.render import render_event_line, render_position_doc_tab_html
         sess = repository.get_session_row(db, session_id)
         doc = _json.loads(sess.position_doc) if sess and sess.position_doc else None
+        if no_subject:
+            event = render_event_line(
+                "✕ Nothing to generate from — this room has no question or topic.", None)
+        elif generated:
+            event = render_event_line("✎ Position document generated", "doc")
+        else:
+            event = ""
         return JSONResponse({
-            "event_html": render_event_line("✎ Position document generated", "doc") if generated else "",
+            "event_html": event,
             "tab": "doc",
             "tab_html": render_position_doc_tab_html(doc),
         })
