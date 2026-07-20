@@ -168,16 +168,6 @@ h1,h2,h3,.serif{font-family:var(--font-doc);}
 .ps-item:hover{background:var(--bg-active);color:var(--text-primary);}
 .ps-item.current{color:var(--text-primary);font-weight:500;}
 .ps-sep{height:1px;background:var(--border-default);margin:4px 2px;}
-.ps-add-form{display:flex;gap:4px;padding:6px 4px 2px;}
-.ps-add-form input{
-  flex:1;min-width:0;font-size:12px;padding:5px 6px;border-radius:4px;
-  border:1px solid var(--border-default);background:var(--bg-surface);color:var(--text-primary);
-}
-.ps-add-form button{
-  font-size:12px;padding:5px 8px;border-radius:4px;border:1px solid var(--border-default);
-  background:transparent;color:var(--text-secondary);cursor:pointer;
-}
-.ps-add-form button:hover{color:var(--text-primary);border-color:var(--text-secondary);}
 .ps-portfolio{color:var(--text-muted);cursor:default;}
 .ps-portfolio:hover{background:none;color:var(--text-muted);}
 .nav-item{
@@ -300,6 +290,11 @@ textarea.set-input{min-height:64px;}
 .set-btn{margin-top:18px;background:var(--accent-teal-fg);color:var(--on-accent);border:0;border-radius:6px;
   padding:9px 18px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;}
 .set-btn:hover{background:var(--accent-gold);}
+.set-btn:disabled{opacity:.55;cursor:progress;}
+.set-btn:disabled:hover{background:var(--accent-teal-fg);}
+@keyframes pmqs-spin{to{transform:rotate(360deg);}}
+.refresh-ico{display:inline-block;font-size:15px;line-height:1;vertical-align:-1px;}
+.refresh-ico.spinning{animation:pmqs-spin .8s linear infinite;}
 .set-status{font-family:var(--font-mono);font-size:11.5px;color:var(--text-secondary);line-height:1.7;}
 .set-status b{color:var(--text-primary);font-weight:500;}
 
@@ -569,11 +564,7 @@ textarea.set-input{min-height:64px;}
             <a class="ps-item" id="ps-settings" href="/settings">Product settings</a>
             <div class="ps-item ps-portfolio" title="Coming soon — a rollup across all your products">Portfolio</div>
             <div class="ps-sep"></div>
-            <form class="ps-add-form" method="post" action="/products" onclick="event.stopPropagation()">
-              <input type="text" name="repo" placeholder="org/repo" required>
-              <button type="submit">Add</button>
-            </form>
-            <a class="ps-item" id="ps-add-detailed" href="/products/new">Add with details…</a>
+            <a class="ps-item" id="ps-add-detailed" href="/products/new">+ Add product</a>
           </div>
         </div>
       </div>
@@ -607,9 +598,9 @@ textarea.set-input{min-height:64px;}
       </div>
     </div>
 
-    <div class="nav-item active" data-nav="inbox">Inbox <span class="nav-badge">5</span></div>
+    <div class="nav-item active" data-nav="inbox">Inbox</div>
     <div class="nav-item" data-nav="workspace">Workspaces <span class="nav-badge" id="ws-badge"></span></div>
-    <div class="nav-item" data-nav="outcomes">Outcomes <span class="nav-badge" id="outcomes-badge">7</span></div>
+    <div class="nav-item" data-nav="outcomes">Outcomes <span class="nav-badge" id="outcomes-badge"></span></div>
 
     <div class="rail-spacer"></div>
 

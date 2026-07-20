@@ -68,11 +68,14 @@ def test_switcher_current_name_reflects_active_product(client):
     assert "Widgets" in page.split('id="ps-current"')[1][:200]
 
 
-def test_switcher_has_add_product_form(client):
+def test_switcher_links_to_full_add_product_form(client):
+    # The inline org/repo quick-add was removed once repo became optional -- it implied
+    # a repo was required. The switcher now just links to the full Add Product form.
     _make_product(client, "acme", "widgets")
     page = client.get("/").text
-    assert '<form class="ps-add-form" method="post" action="/products"' in page
-    assert 'name="repo"' in page
+    assert 'href="/products/new"' in page
+    assert "Add product" in page
+    assert 'class="ps-add-form"' not in page  # inline quick-add is gone
 
 
 def test_legacy_view_shows_switcher_scoped_to_default_product(client):
