@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from pmqs.outcomes.routing import destinations_for
+
 from pmqs import config
 from pmqs.web import logo
 from pmqs.web.markdown import render_markdown as _render_markdown
@@ -1278,22 +1280,28 @@ def _ledger_item_html(o: Any, payload: dict, author: str | None = None,
         ref += '</div>'
     else:
         ref = f'<div class="ledger-src">{html.escape(src)}</div>'
-    # Wave 3: portability affordances on the ledger. Document/Meeting get an export
-    # link; a Meeting with a calendar_link gets an "Add to calendar" link. Reuses
-    # .ledger-src + existing tokens, so the §11 brand drift guards stay green.
-    extras = ""
-    if otype in ("document", "meeting"):
-        exp = f'/outcomes/{html.escape(o.id)}/export.md'
-        links = f'<a href="{exp}" target="_blank" rel="noopener">Export .md</a>'
-        cal = html.escape((payload.get("calendar_link") or "").strip())
-        if otype == "meeting" and cal:
-            links += f' · <a href="{cal}" target="_blank" rel="noopener">Add to calendar</a>'
-        extras = f'<div class="ledger-src">{links}</div>'
     # Show the loop closing: this outcome resolved a question the PM had in their Inbox.
     # Rides the existing .ledger-src line (no new colour token, §11 drift guards stay green).
+    resolved_html = ""
     if resolved_question:
-        rq = html.escape(resolved_question)
-        extras += f'<div class="ledger-src">✓ resolved: {rq}</div>'
+        resolved_html = f'<div class="ledger-src">✓ resolved: {html.escape(resolved_question)}</div>'
+    # Wave 3: route the outcome to where work happens. destinations_for() is the single
+    # honest seam — live destinations (copy/download/open, GitHub for a pushed issue, a
+    # Google Calendar deep link for a meeting) render as active buttons; Slack/Notion/Jira
+    # render disabled with a hint until their per-customer connection is wired.
+    route_btns = []
+    for d in destinations_for(o, payload):
+        if d.kind == "stub":
+            route_btns.append(
+                f'<button class="l-btn stub" disabled title="{html.escape(d.hint or "")}">'
+                f'{html.escape(d.label)}</button>'
+            )
+        else:
+            route_btns.append(
+                f'<button class="l-btn" data-kind="{d.kind}" data-url="{html.escape(d.url or "")}"'
+                f' onclick="pmqsRoute(this)">{html.escape(d.label)}</button>'
+            )
+    route_html = f'<div class="ledger-route">{"".join(route_btns)}</div>' if route_btns else ""
     age = html.escape(_rel_age(getattr(o, "created_at", None)) or "")
     # Live-ledger actions (owner-only; the ledger is Product-scoped and may show a
     # colleague's rows). Edit = hosted types only (Issue's source of truth is GitHub);
@@ -1320,7 +1328,7 @@ def _ledger_item_html(o: Any, payload: dict, author: str | None = None,
     return (
         f'<div class="ledger-item" data-type="{otype}" data-oid="{html.escape(str(getattr(o, "id", "") or ""))}">'
         f'<span class="ledger-tag {otype}">{tag}</span>'
-        f'<div class="ledger-main">{title}{ref}{extras}{actions}</div>'
+        f'<div class="ledger-main">{title}{ref}{resolved_html}{route_html}{actions}</div>'
         f'<span class="ledger-time">{age}</span></div>'
     )
 
@@ -1382,10 +1390,13 @@ def render_outcomes(db: Any, template_path: Path | None = None, *, product_id: s
     outcomes_js = _live_js_common(_prefix) + """
 <style>
 .ledger-actions{display:flex;gap:6px;margin-top:8px;}
+.ledger-route{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
 .l-btn{font-family:var(--font-mono);font-size:11px;padding:3px 9px;border-radius:5px;cursor:pointer;
   border:1px solid var(--border-default);background:var(--bg-raised);color:var(--text-secondary);transition:all .12s;}
 .l-btn:hover{color:var(--text-primary);border-color:var(--accent-teal-dim);}
 .l-btn.danger:hover{color:var(--pulse-coral);border-color:var(--pulse-coral-dim);}
+.l-btn.stub{opacity:.5;cursor:not-allowed;}
+.l-btn.stub:hover{color:var(--text-secondary);border-color:var(--border-default);}
 .ledger-edit{display:flex;flex-direction:column;gap:8px;margin-top:6px;}
 .ledger-edit input,.ledger-edit textarea{width:100%;box-sizing:border-box;background:var(--bg-surface);
   border:1px solid var(--border-default);color:var(--text-primary);border-radius:6px;padding:8px 10px;font-size:13px;font-family:inherit;}
@@ -1395,6 +1406,22 @@ def render_outcomes(db: Any, template_path: Path | None = None, *, product_id: s
 document.addEventListener('DOMContentLoaded', function(){
   if (typeof showView === 'function') showView('outcomes');
 });
+// --- route an outcome to where work happens (Wave 3) ---
+// Live destinations only; stubs render disabled and never reach here. 'copy' fetches the
+// outcome's Markdown and writes it to the clipboard; 'download' saves the .md; 'link'
+// opens the target (GitHub, a Google Calendar template, a pasted event) in a new tab.
+function pmqsRoute(btn){
+  var kind = btn.getAttribute('data-kind'), url = btn.getAttribute('data-url');
+  if(kind === 'link'){ window.open(url, '_blank', 'noopener'); return; }
+  if(kind === 'download'){ window.location = url; return; }
+  if(kind === 'copy'){
+    fetch(url).then(function(r){ return r.text(); }).then(function(text){
+      function done(){ var t = btn.textContent; btn.textContent = 'Copied'; setTimeout(function(){ btn.textContent = t; }, 1200); }
+      if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(done, done); }
+      else { done(); }
+    }).catch(function(){ alert('Could not copy.'); });
+  }
+}
 // --- live ledger: edit / remove / reopen (owner-only rows carry the buttons) ---
 function pmqsOutcomeRemove(id){
   if(!confirm('Remove this outcome from the ledger? Its question returns to your Inbox.')) return;
