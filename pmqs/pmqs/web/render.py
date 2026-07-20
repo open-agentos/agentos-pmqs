@@ -47,6 +47,20 @@ function pmqsPost(action, fields){{
 }}
 function pmqsOpenWorkspace(qid){{ pmqsPost('{prefix}/workspace/open', {{question_id: qid || ''}}); }}
 function pmqsSetStatus(qid, status){{ pmqsPost('{prefix}/questions/'+qid+'/status', {{status: status}}); }}
+// Global create menu (rec 5): capture from any view. Prefix-aware so each action stays
+// inside the product being viewed. The markup + open/close live in the template; this is
+// just the submit, which routes to the real endpoints.
+function pmqsCreateSubmit(kind){{
+  var v;
+  if(kind==='q'){{ v=(document.getElementById('cf-q-input').value||'').trim(); if(v) pmqsPost('{prefix}/quick-add', {{title:v}}); }}
+  else if(kind==='w'){{ v=(document.getElementById('cf-w-input').value||'').trim(); if(v) pmqsPost('{prefix}/workspace/open', {{topic:v}}); }}
+  else if(kind==='o'){{
+    v=(document.getElementById('cf-o-input').value||'').trim();
+    var a=document.querySelector('#cf-o .cf-type.active');
+    var t=a?a.getAttribute('data-type'):'policy';
+    if(v) pmqsPost('{prefix}/outcomes/new', {{type:t, title:v}});
+  }}
+}}
 // Product switcher (#55): quiet open/close, no framework -- toggle a class, close on
 // outside click or Escape. The menu's *content* (workspace list, current name) is
 // server-rendered by render.py; this just controls visibility.
