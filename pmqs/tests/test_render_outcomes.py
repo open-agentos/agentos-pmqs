@@ -125,7 +125,8 @@ def test_ledger_document_has_export_link(db):
     repository.create_outcome(db, type="document", payload={"title": "Brief", "body": "b"})
     out = render_outcomes(db)
     assert "export.md" in out
-    assert "Export .md" in out
+    assert "Download .md" in out          # Wave 3 route row (replaced "Export .md")
+    assert "Copy as Markdown" in out
 
 
 def test_ledger_meeting_shows_calendar_when_present(db):
@@ -135,5 +136,5 @@ def test_ledger_meeting_shows_calendar_when_present(db):
         payload={"title": "Review", "agenda": "x", "calendar_link": "https://cal/x"},
     )
     out = render_outcomes(db)
-    assert "Add to calendar" in out
-    assert "https://cal/x" in out
+    assert "Add to Google Calendar" in out   # live no-auth deep link (Wave 3)
+    assert "https://cal/x" in out            # the pasted event link is also offered
