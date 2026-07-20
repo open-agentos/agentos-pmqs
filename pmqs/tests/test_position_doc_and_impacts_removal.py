@@ -2,7 +2,9 @@
 1. Position Document fields normalize non-string LLM output (e.g. a nested
    yes/no-consequence dict) into real text instead of showing the raw Python repr,
    and render through the safe markdown subset instead of plain-escaped text.
-2. The Evidence tab is removed from the Workspace view for now.
+2. The Impacts tab (unfinished, a static mockup with no server data behind it) is
+   removed from the Workspace view for now. Evidence stays -- it's helpful, it's
+   effectively a citation list.
 """
 from pmqs.web.render import _doc_field_text, _position_doc_html
 
@@ -52,9 +54,13 @@ def test_string_fields_still_render_normally():
 
 # --- 2. Evidence tab removed -----------------------------------------------------
 
-def test_evidence_tab_not_in_template():
+def test_impacts_tab_not_in_template():
+    """Impacts (unfinished, was a static mockup with no server data behind it) is
+    removed from the tab bar for now. Evidence is helpful (citations) and stays."""
     from pmqs.web.render import _load_template
     t = _load_template(None)
-    assert 'data-tab="evidence"' not in t
-    assert 'id="tab-evidence"' not in t
-    assert "['doc','chart','proposed','draft']" in t  # showTab list no longer includes it
+    assert 'data-tab="chart"' not in t
+    assert 'id="tab-chart"' not in t
+    assert "['doc','evidence','proposed','draft']" in t  # showTab list no longer includes it
+    assert 'data-tab="evidence"' in t  # Evidence stays
+    assert 'id="tab-evidence"' in t

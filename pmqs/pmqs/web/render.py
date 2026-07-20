@@ -623,7 +623,7 @@ _WS_TITLE_RE = re.compile(r'(<span class="ws-title">)(.*?)(</span>)', re.DOTALL)
 _CONVO_RE = re.compile(
     r'(<div class="convo-scroll"[^>]*>)(.*?)(</div>\s*<div class="convo-input">)', re.DOTALL
 )
-_TAB_DOC_RE = re.compile(r'(<div id="tab-doc">)(.*?)(</div>\s*<div id="tab-chart")', re.DOTALL)
+_TAB_DOC_RE = re.compile(r'(<div id="tab-doc">)(.*?)(</div>\s*<div id="tab-evidence")', re.DOTALL)
 _TAB_EVID_RE = re.compile(
     r'(<div id="tab-evidence"[^>]*>)(.*?)(</div>\s*<div id="tab-proposed")', re.DOTALL
 )
@@ -642,8 +642,8 @@ def _tab_label_re(tab: str) -> re.Pattern:
 def _apply_tab_counts(src: str, counts: dict[str, int]) -> str:
     """Put the item count in the tab label -- Evidence (4), Proposed (2). Renders (0)
     when empty rather than hiding, so an empty pane is a fact rather than an absence.
-    Only the countable tabs get one: 'Position document' and 'Impacts' are single
-    artifacts, not lists."""
+    Only the countable tabs get one: 'Position document' is a single artifact, not a
+    list (Impacts was the other one-off, removed from the tab bar for now)."""
     for tab, n in counts.items():
         def _sub(m: re.Match) -> str:
             label = re.sub(r"\s*\(\d+\)$", "", m.group(2).strip())
@@ -860,10 +860,10 @@ def render_workspace(
     """Splice real war-room session data into the template's Workspace view.
 
     Preserves all CSS/JS and the Inbox/Outcomes views. Replaces: ws-title, conversation
-    messages, position-doc tab, proposed-questions tab, and session stats. The Evidence
-    tab is removed from the UI for now (Matt's call, dogfooding) -- `evidence` is still
-    accepted so callers/citations elsewhere don't need to change, it just isn't spliced
-    into a tab anymore.
+    messages, position-doc tab, evidence tab, proposed-questions tab, and session stats.
+    The Impacts tab is removed from the UI for now (unfinished -- Matt's call, dogfooding);
+    it was always a static mockup fixture with no server-side data behind it, so nothing
+    here changes for it.
     `db`/`workspace_slug` (#55): splices the Product switcher so it shows which product
     this session belongs to, same as Inbox/Outcomes.
     """
@@ -881,12 +881,11 @@ def render_workspace(
     src = _splice3(_WS_TITLE_RE, title, src, "ws-title")
     src = _splice3(_CONVO_RE, convo, src, "convo-scroll")
     src = _splice3(_TAB_DOC_RE, _position_doc_html(position_doc), src, "tab-doc")
+    src = _splice3(_TAB_EVID_RE, _evidence_html(evidence), src, "tab-evidence")
     src = _splice3(_TAB_PROP_RE, _proposed_html(proposed, session.id), src, "tab-proposed")
     # #108: counts come from the same lists spliced into the panes above, so the label
-    # can never disagree with the pane's contents. Evidence removed from the tab bar
-    # (for now, at Matt's request) -- _evidence_html/_TAB_EVID_RE stay defined, unused,
-    # so the tab is a one-line reinstate rather than a rebuild.
-    src = _apply_tab_counts(src, {"proposed": len(proposed)})
+    # can never disagree with the pane's contents.
+    src = _apply_tab_counts(src, {"evidence": len(evidence), "proposed": len(proposed)})
 
     src, n = _STATS_RE.subn(
         lambda m: f'{m.group(1)}<span id="sess-count">{n_exchanges}</span> exchanges{m.group(2)}', src
