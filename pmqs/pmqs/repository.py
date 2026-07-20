@@ -465,7 +465,8 @@ def outcome_is_shared(db: OrmSession, outcome: Outcome) -> bool:
 
 
 def list_ledger_outcomes(
-    db: OrmSession, *, product_id: str | None = None, member_id: str | None = None
+    db: OrmSession, *, product_id: str | None = None, member_id: str | None = None,
+    include_retired: bool = False,
 ) -> list[Outcome]:
     """The Outcomes ledger: every member's outcomes for this Product, newest first,
     filtered by §4's visibility resolution for `member_id`.
@@ -493,6 +494,10 @@ def list_ledger_outcomes(
         visible.append(Session.author_member_id == member_id)
 
     stmt = select(Outcome).outerjoin(Session, Outcome.session_id == Session.id).where(or_(*visible))
+    if not include_retired:
+        # 'Remove' retires an outcome (soft-delete, build-spec §7): it disappears from the
+        # ledger the PM reads while the row + retired_at survive for history/recovery.
+        stmt = stmt.where(Outcome.retired_at.is_(None))
     if product_id is not None:
         stmt = stmt.where(Outcome.product_id == product_id)
     stmt = stmt.order_by(Outcome.created_at.desc())
@@ -531,6 +536,39 @@ def outcome_payload(outcome: Outcome) -> dict[str, Any]:
 
 def get_outcome(db: OrmSession, outcome_id: str) -> Outcome | None:
     return db.get(Outcome, outcome_id)
+
+
+def update_outcome_payload(db: OrmSession, outcome_id: str, payload: dict[str, Any]) -> Outcome | None:
+    """Edit a hosted-store outcome's content in place (the live-ledger 'Edit' action).
+
+    Replaces the JSON payload wholesale -- the caller rebuilds it through the same
+    build_* validators the create path uses, so an edited Document is validated exactly
+    like a fresh one. Deliberately does NOT touch retired_at/promoted_at/session_id: this
+    is a content edit, not a lifecycle or visibility change.
+    """
+    o = db.get(Outcome, outcome_id)
+    if o is None:
+        return None
+    o.payload = json.dumps(payload)
+    db.commit()
+    return o
+
+
+def reopen_session(db: OrmSession, sid: str) -> Session | None:
+    """Reopen a war-room session so the PM can keep working (the ledger 'Reopen' action).
+
+    Inverse of close_session: status back to 'open', closed_at/close_reason cleared so the
+    room is live again and the §4.5 legible-absence signal doesn't count a room that was
+    reopened. Idempotent on an already-open room.
+    """
+    s = db.get(Session, sid)
+    if s is None:
+        return None
+    s.status = "open"
+    s.closed_at = None
+    s.close_reason = None
+    db.commit()
+    return s
 
 
 # --- News items (Phase 4 raw staging store) ---

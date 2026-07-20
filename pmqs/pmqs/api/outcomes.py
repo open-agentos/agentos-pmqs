@@ -238,6 +238,101 @@ def create_typed_outcome(
     })
 
 
+_HOSTED_EDIT_TYPES = ("policy", "document", "meeting", "question")
+
+
+def _owned_outcome(db: OrmSession, outcome_id: str):
+    """Fetch an outcome only if the acting member owns it. The ledger is Product-scoped
+    and can show a colleague's rows (build-spec §5); edit/remove/reopen are the owner's
+    prerogative, so guard every one of them. Returns (outcome, error_response)."""
+    o = repository.get_outcome(db, outcome_id)
+    if o is None:
+        return None, JSONResponse({"error": "not found"}, status_code=404)
+    if o.author_member_id and o.author_member_id != members.current_member_id(db):
+        return None, JSONResponse({"error": "not yours to change"}, status_code=403)
+    return o, None
+
+
+@router.post("/outcomes/{outcome_id}/edit")
+def edit_outcome(
+    outcome_id: str,
+    title: str = Form(default=""),
+    body: str = Form(default=""),
+    agenda: str = Form(default=""),
+    calendar_link: str = Form(default=""),
+    db: OrmSession = Depends(get_session),
+):
+    """Edit a hosted-store outcome's content in place (live-ledger 'Edit').
+
+    Issue outcomes aren't editable here -- GitHub is their source of truth; the ledger row
+    links out to it. The payload is rebuilt through the same build_* validators the create
+    path uses, so an edit is validated exactly like a fresh outcome.
+    """
+    o, err = _owned_outcome(db, outcome_id)
+    if err:
+        return err
+    if o.type not in _HOSTED_EDIT_TYPES:
+        return JSONResponse(
+            {"error": f"{o.type} outcomes are edited at their source, not in the ledger"},
+            status_code=400,
+        )
+    try:
+        if o.type == "policy":
+            payload = build_policy(body or title)
+        elif o.type == "document":
+            payload = build_document(title, body)
+        elif o.type == "meeting":
+            payload = build_meeting(title, agenda, calendar_link)
+        else:  # question
+            payload = build_question(title, body)
+    except OutcomeValidationError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    o = repository.update_outcome_payload(db, outcome_id, payload)
+    return JSONResponse({"id": o.id, "type": o.type, "title": display_title(o.type, payload)})
+
+
+@router.post("/outcomes/{outcome_id}/remove")
+def remove_outcome(outcome_id: str, db: OrmSession = Depends(get_session)):
+    """Remove an outcome from the ledger (live-ledger 'Remove').
+
+    Soft-delete: retires the outcome (retired_at) so it leaves the ledger the PM reads
+    while the row survives for history. If it had resolved an Inbox question, that question
+    returns to the Inbox as 'saved' -- a decision record shouldn't vanish and leave its
+    question silently 'answered' by nothing.
+    """
+    o, err = _owned_outcome(db, outcome_id)
+    if err:
+        return err
+    rq = repository.session_question(db, o.session_id)
+    repository.deactivate_outcome(db, outcome_id)
+    reopened = None
+    if rq is not None and rq.status == "answered":
+        repository.update_question_status(db, rq.id, "saved")
+        reopened = rq.title
+    return JSONResponse({"id": outcome_id, "removed": True, "returned_to_inbox": reopened})
+
+
+@router.post("/outcomes/{outcome_id}/reopen")
+def reopen_outcome(outcome_id: str, db: OrmSession = Depends(get_session)):
+    """Continue working on an outcome in its war room (live-ledger 'Reopen').
+
+    Reopens the session that produced it and hands back the room URL to navigate to. The
+    outcome itself stays in the ledger; the PM can refine the conversation and commit an
+    updated outcome. No-op-safe when the outcome had no room.
+    """
+    o, err = _owned_outcome(db, outcome_id)
+    if err:
+        return err
+    if not o.session_id:
+        return JSONResponse(
+            {"error": "this outcome has no war room to reopen"}, status_code=400
+        )
+    s = repository.reopen_session(db, o.session_id)
+    if s is None:
+        return JSONResponse({"error": "room not found"}, status_code=404)
+    return JSONResponse({"id": outcome_id, "session_id": s.id, "url": f"/workspace/{s.id}"})
+
+
 @router.post("/outcomes/{outcome_id}/deactivate")
 def deactivate_outcome(outcome_id: str, db: OrmSession = Depends(get_session)):
     o = repository.deactivate_outcome(db, outcome_id)

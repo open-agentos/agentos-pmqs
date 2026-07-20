@@ -1249,8 +1249,11 @@ document.addEventListener('DOMContentLoaded', function(){{
     return new_src.replace("</body>", js + "</body>")
 
 
+_LEDGER_EDITABLE = ("policy", "document", "meeting", "question")
+
+
 def _ledger_item_html(o: Any, payload: dict, author: str | None = None,
-                      resolved_question: str | None = None) -> str:
+                      resolved_question: str | None = None, *, owned: bool = False) -> str:
     """One ledger row.
 
     `author` renders the "who decided this" half of Wave 1/2's whole point: the ledger is
@@ -1292,10 +1295,32 @@ def _ledger_item_html(o: Any, payload: dict, author: str | None = None,
         rq = html.escape(resolved_question)
         extras += f'<div class="ledger-src">✓ resolved: {rq}</div>'
     age = html.escape(_rel_age(getattr(o, "created_at", None)) or "")
+    # Live-ledger actions (owner-only; the ledger is Product-scoped and may show a
+    # colleague's rows). Edit = hosted types only (Issue's source of truth is GitHub);
+    # Reopen = only when there's a room to continue; Remove = any owned row.
+    actions = ""
+    if owned:
+        oid = html.escape(str(getattr(o, "id", "") or ""))
+        btns = []
+        if otype in _LEDGER_EDITABLE:
+            btns.append(f'<button class="l-btn" onclick="pmqsOutcomeEdit(this)">Edit</button>')
+        if getattr(o, "session_id", None):
+            btns.append(f'<button class="l-btn" onclick="pmqsOutcomeReopen(\'{oid}\')">Reopen</button>')
+        btns.append(f'<button class="l-btn danger" onclick="pmqsOutcomeRemove(\'{oid}\')">Remove</button>')
+        # Current values for the inline editor, embedded as an escaped JSON attribute so the
+        # form prefills without a round trip. Only the fields each type actually edits.
+        edit_vals = {
+            "type": otype, "id": getattr(o, "id", ""),
+            "title": payload.get("title", ""), "body": payload.get("body", ""),
+            "agenda": payload.get("agenda", ""), "calendar_link": payload.get("calendar_link", ""),
+            "text": payload.get("text", ""),
+        }
+        data_edit = html.escape(json.dumps(edit_vals), quote=True)
+        actions = f'<div class="ledger-actions" data-edit="{data_edit}">{"".join(btns)}</div>'
     return (
-        f'<div class="ledger-item" data-type="{otype}">'
+        f'<div class="ledger-item" data-type="{otype}" data-oid="{html.escape(str(getattr(o, "id", "") or ""))}">'
         f'<span class="ledger-tag {otype}">{tag}</span>'
-        f'<div class="ledger-main">{title}{ref}{extras}</div>'
+        f'<div class="ledger-main">{title}{ref}{extras}{actions}</div>'
         f'<span class="ledger-time">{age}</span></div>'
     )
 
@@ -1328,10 +1353,12 @@ def render_outcomes(db: Any, template_path: Path | None = None, *, product_id: s
     for o in outcomes:
         counts[o.type] = counts.get(o.type, 0) + 1
         rq = repository.session_question(db, o.session_id)
+        owned = (o.author_member_id is None) or (o.author_member_id == viewer_id)
         items.append(
             _ledger_item_html(
                 o, repository.outcome_payload(o), authors.get(o.author_member_id),
                 resolved_question=(rq.title if rq is not None else None),
+                owned=owned,
             )
         )
 
@@ -1353,10 +1380,67 @@ def render_outcomes(db: Any, template_path: Path | None = None, *, product_id: s
         )
     _prefix = f"/w/{workspace_slug}" if workspace_slug else ""
     outcomes_js = _live_js_common(_prefix) + """
+<style>
+.ledger-actions{display:flex;gap:6px;margin-top:8px;}
+.l-btn{font-family:var(--font-mono);font-size:11px;padding:3px 9px;border-radius:5px;cursor:pointer;
+  border:1px solid var(--border-default);background:var(--bg-raised);color:var(--text-secondary);transition:all .12s;}
+.l-btn:hover{color:var(--text-primary);border-color:var(--accent-teal-dim);}
+.l-btn.danger:hover{color:var(--pulse-coral);border-color:var(--pulse-coral-dim);}
+.ledger-edit{display:flex;flex-direction:column;gap:8px;margin-top:6px;}
+.ledger-edit input,.ledger-edit textarea{width:100%;box-sizing:border-box;background:var(--bg-surface);
+  border:1px solid var(--border-default);color:var(--text-primary);border-radius:6px;padding:8px 10px;font-size:13px;font-family:inherit;}
+.ledger-edit textarea{min-height:64px;resize:vertical;}
+</style>
 <script>
 document.addEventListener('DOMContentLoaded', function(){
   if (typeof showView === 'function') showView('outcomes');
 });
+// --- live ledger: edit / remove / reopen (owner-only rows carry the buttons) ---
+function pmqsOutcomeRemove(id){
+  if(!confirm('Remove this outcome from the ledger? Its question returns to your Inbox.')) return;
+  fetch('/outcomes/'+id+'/remove', {method:'POST'})
+    .then(function(r){ if(r.ok){ location.reload(); } else { alert('Could not remove.'); } });
+}
+function pmqsOutcomeReopen(id){
+  fetch('/outcomes/'+id+'/reopen', {method:'POST'})
+    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+    .then(function(res){ if(res.ok && res.j.url){ window.location = res.j.url; }
+      else { alert((res.j && res.j.error) || 'Could not reopen.'); } });
+}
+function pmqsOutcomeEdit(btn){
+  var item = btn.closest('.ledger-item');
+  var main = item.querySelector('.ledger-main');
+  var data = JSON.parse(item.querySelector('.ledger-actions').getAttribute('data-edit'));
+  var original = main.innerHTML;
+  var t = data.type, rows = '';
+  function inp(name, val){ return '<input data-f="'+name+'" value="'+(val||'').replace(/"/g,'&quot;')+'" placeholder="'+name+'">'; }
+  function area(name, val){ return '<textarea data-f="'+name+'" placeholder="'+name+'">'+(val||'')+'</textarea>'; }
+  if(t==='policy'){ rows = area('text', data.text); }
+  else if(t==='meeting'){ rows = inp('title', data.title) + area('agenda', data.agenda); }
+  else { rows = inp('title', data.title) + area('body', data.body); }  // document, question
+  var form = document.createElement('div');
+  form.className = 'ledger-edit';
+  form.innerHTML = rows +
+    '<div class="ledger-actions"><button class="l-btn" data-save>Save</button>'+
+    '<button class="l-btn" data-cancel>Cancel</button></div>';
+  main.innerHTML = '';
+  main.appendChild(form);
+  form.querySelector('[data-cancel]').onclick = function(){ main.innerHTML = original; };
+  form.querySelector('[data-save]').onclick = function(){
+    var body = new URLSearchParams();
+    form.querySelectorAll('[data-f]').forEach(function(el){
+      var name = el.getAttribute('data-f');
+      // policy's text posts as the 'body' field (build_policy(body||title))
+      body.set(name==='text' ? 'body' : name, el.value);
+    });
+    if(t==='meeting' && data.calendar_link) body.set('calendar_link', data.calendar_link);
+    fetch('/outcomes/'+data.id+'/edit', {method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body.toString()})
+      .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+      .then(function(res){ if(res.ok){ location.reload(); }
+        else { alert((res.j && res.j.error) || 'Could not save.'); } });
+  };
+}
 </script>
 """
     return _inject_before_body_close(new_src, outcomes_js)
