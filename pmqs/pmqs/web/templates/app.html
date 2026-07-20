@@ -2,60 +2,73 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<script>(function(){try{if(localStorage.getItem('pmqs-theme')==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}})();</script>
 <title>PMQs — Inbox</title>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,500;9..40,600;9..40,700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600;8..60,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..700&family=Plus+Jakarta+Sans:wght@300..700&family=Geist+Mono:wght@300..600&display=swap');
 
+/* --- Parchment identity (brand doc §3). Light is the default theme. §3 states
+   every ratio per surface: each foreground is measured against each surface it
+   actually renders on, not against one background. --- */
 :root{
-  /* --- Draft 1 design tokens (brand doc §3). Contrast ratios measured against
-     --bg-main; see docs/brand-design-system.md. --- */
+  /* Structure — warm parchment: canvas -> card -> active -> raised */
+  --bg-main:#f8f0dc;
+  --bg-surface:#fefcf4;
+  --bg-active:#ede0c4;
+  --bg-raised:#e0cfb0;
+  --border-default:#d6c09a;
+  --border-muted:#e8d9bc;
 
-  /* Structure */
-  --bg-main:#12181c;
-  --bg-surface:#1a2226;
-  --bg-active:#212b30;
-  --bg-raised:#273136;      /* chips/controls sitting on --bg-active. Not in §3:
-                                   the product has four surface levels, §3 lists three. */
-  --border-default:#2e383d;
-  --border-muted:#232b2f;
+  /* Text — warm ink */
+  --text-primary:#231409;    /* 11.7-17.4 */
+  --text-secondary:#6b4728;  /*  5.4- 8.0 */
+  --text-muted:#8a6238;      /*  3.5- 5.3 — AA-large on the deep surfaces, faint metadata, used knowingly */
 
-  /* Text */
-  --text-primary:#f4efe6;    /* 15.63:1 */
-  --text-secondary:#9aa5a9;  /*  7.10:1 */
-  --text-muted:#5f6a6d;      /*  3.21:1 — AA-large only; faint metadata, used knowingly */
+  /* Structural / interactive accent — warm ink family. On the light theme the
+     interactive signal is weight + underline, not a second hue, so -fg shares
+     the secondary ink value; -dim is the structural border. */
+  --accent-teal:#e7d3ac;      /* FILL only — subtle warm tan (system avatar) */
+  --accent-teal-fg:#6b4728;   /*  5.4- 8.0 — interactive text */
+  --accent-teal-dim:#c2a878;  /*  ~3:1 — borders */
 
-  /* Structural accent — the logo's ring family.
-     FILL ONLY: 1.88:1 on --bg-main, i.e. invisible as text or a border. */
-  --accent-teal:#1f4d47;
-  /* Foreground members of that same hue family (h=184), derived by lifting
-     lightness at constant hue/chroma until measured. This is the UI's
-     interactive/structural accent: hover, focus, active, send. */
-  --accent-teal-fg:#5b8a83;   /*  4.61:1 — AA text */
-  --accent-teal-dim:#476a66;  /*  3.00:1 — borders */
+  /* Resolution / primary action — burnt amber. Deepened from the mock's #b05e10
+     so it clears AA (4.5) as text on the mid surfaces too. */
+  --accent-gold:#95500f;      /*  4.7- 5.4 as text */
+  --accent-gold-dim:#a86414;  /*  border derivative */
+  --on-accent:#fdf6e9;        /*  near-white text on an accent fill (6.1 on --accent-gold) */
 
-  /* Semantic. Each accent gets a border derivative, mixed toward --bg-main to 3:1. */
-  --accent-gold:#dfb15b;     /*  9.02:1 — resolution / primary action */
-  --accent-gold-dim:#75613d;  /*  3.01:1 */
-  --accent-sage:#8fae86;     /*  7.30:1 — success state only */
-  --pulse-cyan:#38bdf8;      /*  8.36:1 — telemetry / live status */
-  --pulse-coral:#f87171;     /*  6.47:1 — risk / error */
-  --pulse-coral-dim:#984e4e; /*  3.00:1 */
+  /* Semantic status — warm-adjusted */
+  --accent-sage:#2e6b3c;      /*  4.2- 6.2 — success only */
+  --pulse-cyan:#2a5880;       /*  4.9- 7.3 — telemetry / live status */
+  --pulse-coral:#9c3220;      /*  4.8- 7.1 — risk / error */
+  --pulse-coral-dim:#c05a42;  /*  border derivative */
 
-  /* Document surface — the §3 exception. Deliberately warm against the dark chrome. */
-  --paper:#efe9dd;
-  --paper-ink:#2a2620;
-  --paper-muted:#6b6153;
+  /* Document surface — "the letter": a deeper, warmer parchment than the card,
+     read in the serif doc face. Q4 — a distinct crafted reading surface. */
+  --paper:#f4e6c8;
+  --paper-ink:#2a1a09;        /* 13-16 */
+  --paper-muted:#7a5630;      /*  ~5 */
 
-  /* Type stacks. --font-display substitutes for Aeonik (brand doc §4), which is
-     a licensed CoType face we don't hold a licence for. DM Sans is the closest
-     free match: a geometric skeleton with neo-grotesque detailing, same as
-     Aeonik's construction. --font-doc is the paper document surface (§3
-     exception) and is deliberately NOT the display face. */
-  --font-display:'DM Sans', system-ui, sans-serif;
-  --font-body:'Inter', system-ui, sans-serif;
-  --font-mono:'IBM Plex Mono', SFMono-Regular, Consolas, monospace;
-  --font-doc:'Source Serif 4', Georgia, serif;
+  /* Type — Fraunces (serif display + doc), Plus Jakarta Sans (body), Geist Mono.
+     Headers are serif on this identity. */
+  --font-display:'Fraunces', ui-serif, Georgia, serif;
+  --font-body:'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono:'Geist Mono', ui-monospace, SFMono-Regular, monospace;
+  --font-doc:'Fraunces', ui-serif, Georgia, serif;
+}
+
+/* Dark theme — a secondary skin of the SAME brand (same type, dark colours);
+   not the retired Draft-1 identity. Ratios vs --bg-main #12181c. Not guarded by
+   test_brand_doc (that pins the default/light identity); retune with care. */
+html[data-theme="dark"]{
+  --bg-main:#12181c; --bg-surface:#1a2226; --bg-active:#212b30; --bg-raised:#273136;
+  --border-default:#2e383d; --border-muted:#232b2f;
+  --text-primary:#f4efe6; --text-secondary:#9aa5a9; --text-muted:#5f6a6d;
+  --accent-teal:#1f4d47; --accent-teal-fg:#5b8a83; --accent-teal-dim:#476a66;
+  --accent-gold:#dfb15b; --accent-gold-dim:#75613d; --on-accent:#12181c;
+  --accent-sage:#8fae86; --pulse-cyan:#38bdf8; --pulse-coral:#f87171; --pulse-coral-dim:#984e4e;
+  --paper:#efe9dd; --paper-ink:#2a2620; --paper-muted:#6b6153;
 }
 
 *{box-sizing:border-box;}
@@ -94,7 +107,7 @@ h1,h2,h3,.serif{font-family:var(--font-doc);}
 .ps-menu{
   display:none;position:absolute;top:18px;left:0;min-width:180px;z-index:20;
   background:var(--bg-surface);border:1px solid var(--border-default);border-radius:6px;
-  box-shadow:0 4px 14px rgba(0,0,0,.25);padding:4px;
+  box-shadow:0 6px 18px rgba(60,30,5,0.12);padding:4px;
 }
 .product-switcher.open .ps-menu{display:block;}
 .ps-item{
@@ -133,7 +146,7 @@ h1,h2,h3,.serif{font-family:var(--font-doc);}
 .pulse-label{font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted);margin-bottom:8px;}
 svg.pulse{width:100%;height:28px;display:block;}
 .pulse-line{fill:none;stroke:var(--pulse-cyan);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;
-  filter:drop-shadow(0 0 3px rgba(56,189,248,0.4));}
+  filter:drop-shadow(0 0 3px rgba(149,80,15,0.30));}
 .pulse-line{stroke-dasharray:6 4;}
 
 .metrics{margin-top:10px;display:flex;flex-direction:column;gap:5px;}
@@ -181,7 +194,7 @@ svg.pulse{width:100%;height:28px;display:block;}
 .d-btn{font-family:var(--font-body);font-size:12.5px;padding:8px 15px;border-radius:6px;cursor:pointer;
   border:1px solid var(--border-default);background:var(--bg-raised);color:var(--text-secondary);transition:all .12s;}
 .d-btn:hover{color:var(--text-primary);border-color:var(--text-muted);}
-.d-btn.primary{background:var(--accent-gold);border-color:var(--accent-gold);color:var(--bg-main);font-weight:600;}
+.d-btn.primary{background:var(--accent-gold);border-color:var(--accent-gold);color:var(--on-accent);font-weight:600;}
 .d-btn.primary:hover{background:var(--accent-gold-dim);border-color:var(--accent-gold-dim);color:var(--text-primary);}
 .inbox-header{font-family:var(--font-display);margin-bottom:6px;font-size:26px;font-weight:600;letter-spacing:-0.02em;}
 .opener{color:var(--text-secondary);font-size:14px;margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--border-default);}
@@ -195,7 +208,7 @@ svg.pulse{width:100%;height:28px;display:block;}
 .filter-pill{font-size:12px;color:var(--text-muted);padding:5px 12px;border-radius:14px;
   border:1px solid var(--border-default);cursor:pointer;transition:all .12s;}
 .filter-pill:hover{color:var(--text-secondary);border-color:var(--text-muted);}
-.filter-pill.active{color:var(--accent-teal-fg);border-color:var(--accent-teal-dim);background:rgba(91,138,131,0.10);}
+.filter-pill.active{color:var(--accent-teal-fg);border-color:var(--accent-teal-dim);background:rgba(107,71,40,0.10);}
 
 .quick-add{display:flex;gap:8px;margin-bottom:22px;}
 .quick-add input{flex:1;background:var(--bg-active);border:1px solid var(--border-default);border-radius:6px;
@@ -233,7 +246,7 @@ svg.pulse{width:100%;height:28px;display:block;}
 textarea.set-input{min-height:64px;}
 .set-hint{font-size:11px;color:var(--text-muted);margin-top:4px;}
 .set-row{display:flex;gap:12px;} .set-row > div{flex:1;}
-.set-btn{margin-top:18px;background:var(--accent-teal-fg);color:var(--bg-main);border:0;border-radius:6px;
+.set-btn{margin-top:18px;background:var(--accent-teal-fg);color:var(--on-accent);border:0;border-radius:6px;
   padding:9px 18px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;}
 .set-btn:hover{background:var(--accent-gold);}
 .set-status{font-family:var(--font-mono);font-size:11.5px;color:var(--text-secondary);line-height:1.7;}
@@ -288,8 +301,8 @@ textarea.set-input{min-height:64px;}
 .card-meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
 .pill{font-size:10.5px;font-family:var(--font-mono);padding:2px 7px;border-radius:3px;
   color:var(--text-secondary);background:var(--bg-raised);border:1px solid var(--border-default);}
-.pill.urgent{color:var(--pulse-coral);border-color:var(--pulse-coral-dim);background:rgba(248,113,113,0.10);}
-.pill.stakes{color:var(--accent-gold);border-color:var(--accent-gold-dim);background:rgba(223,177,91,0.09);}
+.pill.urgent{color:var(--pulse-coral);border-color:var(--pulse-coral-dim);background:rgba(156,50,32,0.10);}
+.pill.stakes{color:var(--accent-gold);border-color:var(--accent-gold-dim);background:rgba(149,80,15,0.09);}
 .pill.source{color:var(--text-muted);}
 .card-age{font-size:11px;color:var(--text-muted);font-family:var(--font-mono);white-space:nowrap;margin-left:auto;}
 
@@ -334,7 +347,7 @@ textarea.set-input{min-height:64px;}
    --accent-teal-fg as the spec suggested measures 2.45:1. */
 .msg.system .msg-avatar{background:var(--accent-teal);color:var(--text-primary);
   border:1px solid var(--accent-teal-dim);}
-.msg.pm .msg-avatar{background:var(--bg-raised);color:var(--accent-gold);
+.msg.pm .msg-avatar{background:var(--bg-raised);color:var(--text-secondary);
   border:1px solid var(--accent-gold-dim);}
 .msg-col{flex:1;min-width:0;padding-top:5px;}
 .msg.system{color:var(--text-secondary);}
@@ -379,7 +392,7 @@ textarea.set-input{min-height:64px;}
   padding:10px 12px;color:var(--text-primary);font-size:13.5px;font-family:var(--font-body);
 }
 .convo-input input:focus{outline:none;border-color:var(--accent-teal-dim);}
-.send-btn{background:var(--accent-teal-dim);border:none;color:var(--bg-main);border-radius:6px;padding:0 16px;
+.send-btn{background:var(--accent-gold);border:none;color:var(--on-accent);border-radius:6px;padding:0 16px;
   font-size:13px;font-weight:500;cursor:pointer;font-family:var(--font-body);}
 .send-btn:hover{background:var(--accent-teal-fg);}
 
@@ -399,7 +412,7 @@ textarea.set-input{min-height:64px;}
 .artifact-body{flex:1;overflow-y:auto;}
 
 .doc{background:var(--paper);color:var(--paper-ink);margin:18px;border-radius:4px;padding:26px 28px;
-  font-family:var(--font-doc);box-shadow:0 4px 18px rgba(0,0,0,0.35);}
+  font-family:var(--font-doc);box-shadow:0 6px 22px rgba(60,30,5,0.14);}
 .doc h3{margin:0 0 4px;font-size:19px;}
 .doc .doc-sub{font-family:var(--font-body);font-size:12px;color:var(--paper-muted);margin-bottom:18px;letter-spacing:0.02em;}
 .doc-section{margin-bottom:16px;}
@@ -407,20 +420,20 @@ textarea.set-input{min-height:64px;}
   color:var(--paper-muted);margin-bottom:5px;}
 .doc-text{font-family:var(--font-body);font-size:13.5px;line-height:1.6;color:var(--paper-ink);}
 .doc-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
-.doc-box{border:1px solid rgba(42,38,32,0.18);border-radius:5px;padding:18px 20px;
-  background:rgba(42,38,32,0.025);}
-.doc-box.for{border-left:3px solid var(--accent-teal-dim);}
-.doc-box.against{border-left:3px solid var(--pulse-coral-dim);}
+.doc-box{border:1px solid rgba(42,26,9,0.16);border-radius:5px;padding:18px 20px;
+  background:rgba(42,26,9,0.03);}
+.doc-box.for{border-left:3px solid var(--accent-sage);}
+.doc-box.against{border-left:3px solid var(--pulse-coral);}
 /* Coloured section labels — 4.9:1 on --paper. */
-.doc-box.for .doc-label{color:var(--accent-teal-dim);}
-.doc-box.against .doc-label{color:var(--pulse-coral-dim);}
+.doc-box.for .doc-label{color:var(--accent-sage);}
+.doc-box.against .doc-label{color:var(--pulse-coral);}
 /* +/− markers. ::before on .doc-text keeps the markup untouched — the artifact pane's
    nesting depth is load-bearing (_TAB_PROP_RE counts four literal </div>s). */
 .doc-box .doc-text{position:relative;padding-left:18px;}
 .doc-box .doc-text::before{position:absolute;left:0;top:0;font-family:var(--font-mono);
   font-weight:500;font-size:13px;line-height:1.6;}
-.doc-box.for .doc-text::before{content:"+";color:var(--accent-teal-dim);}
-.doc-box.against .doc-text::before{content:"\2212";color:var(--pulse-coral-dim);}
+.doc-box.for .doc-text::before{content:"+";color:var(--accent-sage);}
+.doc-box.against .doc-text::before{content:"\2212";color:var(--pulse-coral);}
 /* The rebuttal is the second label/text pair in each box; mute its marker so the
    argument stays the thing you read first. */
 .doc-box .doc-label ~ .doc-label{margin-top:14px;}
@@ -465,6 +478,16 @@ textarea.set-input{min-height:64px;}
 .chip{font-family:var(--font-mono);font-size:10.5px;padding:3px 8px;border-radius:10px;
   color:var(--text-secondary);border:1px solid var(--border-default);}
 .chip.record{color:var(--text-muted);}  /* not an outcome type — left alone */
+
+/* Parchment character: section flourishes, theme toggle, the letter surface */
+.pulse-label::before, .set-section h2::before{content:"\2726 ";color:var(--border-default);font-size:0.85em;}
+.rail-foot{padding:2px 12px 8px;}
+.theme-toggle{width:100%;text-align:left;display:flex;align-items:center;gap:8px;background:transparent;
+  border:1px solid transparent;border-radius:7px;padding:6px 8px;color:var(--text-muted);cursor:pointer;
+  font-family:var(--font-body);font-size:12px;}
+.theme-toggle:hover{border-color:var(--border-default);color:var(--accent-gold);background:var(--bg-surface);}
+.doc{padding:32px 36px;border:1px solid var(--border-default);}
+.doc h1{letter-spacing:-0.01em;}
 </style>
 </head>
 <body>
@@ -523,6 +546,7 @@ textarea.set-input{min-height:64px;}
       </div>
     </div>
 
+    <div class="rail-foot"><button class="theme-toggle" onclick="toggleTheme()" title="Toggle light / dark" aria-label="Toggle theme">◑ Light / dark</button></div>
     <a class="org" id="identity-block" href="/settings" title="Settings"><!-- IDENTITY --><b>You</b><br>Settings<!-- /IDENTITY --></a>
   </div>
 
@@ -901,6 +925,7 @@ function showView(name){
   if (nav) nav.classList.add('active');
 }
 function openWorkspace(){ showView('workspace'); }
+function toggleTheme(){var d=document.documentElement,dark=d.getAttribute('data-theme')==='dark';if(dark){d.removeAttribute('data-theme');}else{d.setAttribute('data-theme','dark');}try{localStorage.setItem('pmqs-theme',dark?'light':'dark');}catch(e){}}
 document.querySelectorAll('.nav-item').forEach(n=>{
   n.addEventListener('click',()=>showView(n.dataset.nav));
 });

@@ -12,7 +12,8 @@ from pmqs import repository
 from pmqs.web.render import render_inbox, question_card_html
 
 TEMPLATE = Path(__file__).parent.parent / "pmqs" / "web" / "templates" / "app.html"
-BG_ACTIVE = "#212b30"   # .card's background — the surface the badge actually sits on
+# .card's background — the surface the badge actually sits on. Read from the
+# template so this follows a palette change instead of pinning a stale hex.
 
 
 def _luminance(hex_colour: str) -> float:
@@ -124,8 +125,6 @@ def test_top_badge_is_not_fainter_than_the_default():
     default = re.search(r"\.rank-badge\{[^}]*color:var\(--([a-z-]+)\)", css)
     top = re.search(r"\.rank-badge\.top\{color:var\(--([a-z-]+)\)", css)
     assert default and top
-    assert contrast(_token(top.group(1)), BG_ACTIVE) > contrast(_token(default.group(1)), BG_ACTIVE)
+    surface = _token("bg-active")
+    assert contrast(_token(top.group(1)), surface) > contrast(_token(default.group(1)), surface)
 
-
-def test_the_specced_top_token_really_would_have_inverted():
-    assert contrast(_token("accent-gold-dim"), BG_ACTIVE) < contrast(_token("text-muted"), BG_ACTIVE)

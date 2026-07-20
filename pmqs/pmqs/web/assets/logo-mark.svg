@@ -1,93 +1,38 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  PMQs — "The Faceted Prism Q", the mark alone (no wordmark).
-  See docs/brand-design-system.md §2. THIS FILE IS THE MARK'S ONLY SOURCE.
+  PMQs mark: "the quill/A". Replaces the Faceted Prism Q (brand doc section 2).
+  An amber tile carrying a light quill/A glyph, drawn as a triangular apex with
+  a crossbar and a small apex point. THIS FILE IS THE MARK'S ONLY SOURCE.
 
   ============================================================================
-  DESIGN AGENT: this is the file to edit. Nothing else needs to change.
+  DESIGN AGENT: this is the file to edit. Nothing else needs to change. This
+  mark is a faithful first pass adapted from the parchment mock and is meant to
+  be revisited; keep it square, keep the two colours tracking their tokens.
   ============================================================================
 
-  Geometry
-    Ring centre (300,260), outer r=125, inner r=75. viewBox is cropped tight to
-    the artwork (250x250 + 1 unit of padding for the 0.5 stroke) and is exactly
-    square. Coordinates are kept in the original reference space deliberately —
-    do NOT re-origin them to 0,0. Keeping 300,260 means facet coordinates can be
-    compared against earlier drafts without re-deriving everything.
-
-  Structure (draw order matters)
-    1. TAIL, 8 facets, drawn FIRST so the ring overlaps its root — §2 wants the
-       tail "emerging from" the ring, not merely touching its edge.
-    2. RING, 11 facets, drawn second, on top.
-    3. Centre point, a small cream anchor.
-
-  The tail's 8 facets are one per analytical lens (competitive positioning,
-  growth/adoption, unit economics, risk, roadmap tradeoff, quality/reliability,
-  org/execution, narrative/positioning). Eight perspectives narrowing to one
-  point of resolution. If you re-cut the tail, KEEP IT AT EIGHT. It's meant to
-  read as a well-proportioned tail whether or not anyone counts them.
-
-  Colour holds teal for most of the tail's length and resolves to gold only in
-  the last 1-2 facets: clarity arriving late, and only once earned.
-
-  OPEN REFINEMENT — the priority item (§2, §7.1)
-    Each facet should carry its OWN embedded bevel on its inner and outer edge —
-    a lighter edge facing the implied light source, a darker edge opposite — so
-    every segment reads as an individual cut gem surface. An earlier attempt used
-    one highlight/shadow arc traced around the whole silhouette; that was the
-    wrong approach and is deliberately absent here. Subtle: this should still
-    read flat and clean at a distance and only reveal depth close up.
-
-  Also worth exploring: dropping the facet seams entirely in favour of
-  colour-shift alone; slight irregularity so the cut reads hand-made rather than
-  lathed.
+  Variants
+    logo-mark.svg      this file, the detailed mark. Carries the apex point
+                       (id="apex") and finer 2.2 strokes.
+    logo-fallback.svg  the simplified glyph: no apex point, heavier 2.8 strokes,
+                       so it stays legible at favicon scale. Same viewBox, so
+                       the two are drop-in swappable.
 
   Colours
-    Literal hex, not var(), on purpose — this file is also served standalone as
-    a favicon, where CSS custom properties have no document to resolve against.
-    The ring's teal ramp is a genuine family of related tones and has no single
-    token. But two values here ARE tokens and must track docs §3:
-        #dfb15b  = accent-gold   (the tail's resolve)
-        #f4efe6  = text-primary  (the centre point)
-    tests/test_logo.py pins both. If you change a token, that test tells you.
+    Literal hex, not var(), on purpose: this file is also served standalone as a
+    favicon, where CSS custom properties have no document to resolve against.
+    Two values here ARE tokens and must track docs section 3:
+        #95500f = accent-gold   (the tile)
+        #fdf6e9 = on-accent      (the glyph)
+    tests/test_logo.py pins both. If you retune a token, that test tells you.
 
-  Don't (§2): recolour onto a light/cream field; add drop shadows or glow beyond
-  the per-facet bevel; pair with a secondary icon in the same lockup.
+  Don't (section 2): stretch the tile off square; drop the glyph contrast below
+  legible; pair with a second icon in the same lockup.
 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="174 134 252 252" fill="none">
-
-  <!-- TAIL — 8 facets, one per lens. Teal through most of its length,
-       resolving to gold in the final two. Drawn first: the ring overlaps
-       its root so the tail emerges from beneath. -->
-  <g id="tail" stroke="#1a2226" stroke-width="0.5" stroke-opacity="0.25">
-    <polygon points="335.29,315.09 351.64,325.78 365.78,311.64 355.09,295.29" fill="#1f4d47"/>
-    <polygon points="351.64,325.78 360.93,331.53 371.53,320.93 365.78,311.64" fill="#24504a"/>
-    <polygon points="360.93,331.53 369.85,337.63 377.63,329.85 371.53,320.93" fill="#29544d"/>
-    <polygon points="369.85,337.63 378.42,344.08 384.08,338.42 377.63,329.85" fill="#2e5850"/>
-    <polygon points="378.42,344.08 386.78,350.74 390.74,346.78 384.08,338.42" fill="#345d53"/>
-    <polygon points="386.78,350.74 395.01,357.55 397.55,355.01 390.74,346.78" fill="#5f6d50"/>
-    <polygon points="395.01,357.55 403.08,364.50 404.50,363.08 397.55,355.01" fill="#a5894a"/>
-    <!-- Tip. A triangle, not a quad: the reference draft specified this as a
-         4-gon with a duplicated vertex (411.3,371.3 twice). It rendered the
-         same but read as a copy-paste error. Normalised. -->
-    <polygon points="403.08,364.50 411.30,371.30 404.50,363.08" fill="#dfb15b"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" fill="none">
+  <rect id="tile" x="0" y="0" width="28" height="28" rx="8" fill="#95500f"/>
+  <g id="glyph" stroke="#fdf6e9" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 22 L14 6 l8 16"/>
+    <path d="M9 17 h10"/>
   </g>
-
-  <!-- RING — 11 facets cut from a narrow family of teal tones. Soft contrast
-       between neighbours on purpose: high contrast reads busy and harsh. -->
-  <g id="ring" stroke="#1a2226" stroke-width="0.5" stroke-opacity="0.25">
-    <polygon points="425,260 408.25,322.5 364.95,297.5 375,260" fill="#1f4d47"/>
-    <polygon points="362.5,368.25 300,385 300,335 337.5,324.95" fill="#29564f"/>
-    <polygon points="300,385 237.5,368.25 262.5,324.95 300,335" fill="#355f57"/>
-    <polygon points="237.5,368.25 191.75,322.5 235.05,297.5 262.5,324.95" fill="#1f4d47"/>
-    <polygon points="191.75,322.5 175,260 225,260 235.05,297.5" fill="#29564f"/>
-    <polygon points="175,260 191.75,197.5 235.05,222.5 225,260" fill="#355f57"/>
-    <polygon points="191.75,197.5 237.5,151.75 262.5,195.05 235.05,222.5" fill="#1f4d47"/>
-    <polygon points="237.5,151.75 300,135 300,185 262.5,195.05" fill="#29564f"/>
-    <polygon points="300,135 362.5,151.75 337.5,195.05 300,185" fill="#355f57"/>
-    <polygon points="362.5,151.75 408.25,197.5 364.95,222.5 337.5,195.05" fill="#1f4d47"/>
-    <polygon points="408.25,197.5 425,260 375,260 364.95,222.5" fill="#29564f"/>
-  </g>
-
-  <!-- Centre anchor. text-primary. -->
-  <circle id="centre" cx="300" cy="260" r="6" fill="#f4efe6"/>
+  <circle id="apex" cx="14" cy="6" r="1.5" fill="#fdf6e9"/>
 </svg>

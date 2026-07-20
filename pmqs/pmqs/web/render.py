@@ -94,9 +94,9 @@ def _inject_before_body_close(src: str, snippet: str) -> str:
 def render_error(message: str, status: int = 404) -> str:
     """Minimal styled HTML error page for browser-facing routes (not /api/*)."""
     return f"""<!doctype html><html><head><meta charset="utf-8"><title>PMQs — {status}</title><link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<style>body{{background:#1a1a1f;color:#e8e6e0;font:15px/1.6 -apple-system,system-ui,sans-serif;
+<style>body{{background:#f8f0dc;color:#231409;font:15px/1.6 'Plus Jakarta Sans',ui-sans-serif,system-ui,sans-serif;
 display:flex;align-items:center;justify-content:center;height:100vh;margin:0}}
-.box{{text-align:center}} a{{color:#7fb8a6}} h1{{font-size:42px;margin:0 0 8px;color:#8a8780}}</style>
+.box{{text-align:center}} a{{color:#95500f}} h1{{font-family:'Fraunces',ui-serif,Georgia,serif;font-size:42px;margin:0 0 8px;color:#6b4728}}</style>
 </head><body><div class="box"><h1>{status}</h1><div>{html.escape(message)}</div>
 <div style="margin-top:16px"><a href="/">← Back to Inbox</a></div></div></body></html>"""
 
