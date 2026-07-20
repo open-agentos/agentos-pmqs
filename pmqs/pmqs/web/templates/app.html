@@ -794,7 +794,6 @@ textarea.set-input{min-height:64px;}
           <div class="artifact-pane">
             <div class="artifact-tabs">
               <div class="a-tab active" data-tab="doc" onclick="showTab('doc')">Position document</div>
-              <div class="a-tab" data-tab="evidence" onclick="showTab('evidence')">Evidence</div>
               <div class="a-tab" data-tab="chart" onclick="showTab('chart')">Impacts</div>
               <div class="a-tab" data-tab="proposed" onclick="showTab('proposed')">Proposed questions</div>
               <div class="a-tab" data-tab="draft" onclick="showTab('draft')">Draft</div>
@@ -839,21 +838,6 @@ textarea.set-input{min-height:64px;}
                   </div>
                 </div>
                 <div style="padding:0 22px 18px;font-size:11.5px;color:var(--text-muted);">Also affects: install safety, upgrade path reliability</div>
-              </div>
-
-              <div id="tab-evidence" style="display:none;padding:18px;">
-                <div class="evidence-item">
-                  <div class="evidence-title">Issue #47 — adopt→upgrade data-loss bug</div>
-                  <div class="evidence-sub">Open 9 days · deferred</div>
-                </div>
-                <div class="evidence-item">
-                  <div class="evidence-title">PR #55 — masked-log corruption fix</div>
-                  <div class="evidence-sub">Merged · related upstream fix</div>
-                </div>
-                <div class="evidence-item">
-                  <div class="evidence-title">Run record — template-drift check</div>
-                  <div class="evidence-sub">14 runs · ~20% of installs flagged</div>
-                </div>
               </div>
 
               <div id="tab-proposed" style="display:none;padding:18px;">
@@ -1036,7 +1020,7 @@ document.querySelectorAll('.nav-item').forEach(n=>{
 function showTab(name){
   document.querySelectorAll('.a-tab').forEach(t=>t.classList.remove('active'));
   document.querySelector('.a-tab[data-tab="'+name+'"]').classList.add('active');
-  ['doc','evidence','chart','proposed','draft'].forEach(id=>{
+  ['doc','chart','proposed','draft'].forEach(id=>{
     document.getElementById('tab-'+id).style.display = (id===name) ? 'block':'none';
   });
 }

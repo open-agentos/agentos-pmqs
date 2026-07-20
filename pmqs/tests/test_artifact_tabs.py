@@ -71,13 +71,12 @@ def _labels(out: str) -> dict:
 
 def test_counts_appear_in_tab_labels(db):
     labels = _labels(_render(db, n_evidence=4, n_proposed=2))
-    assert labels["evidence"] == "Evidence (4)"
     assert labels["proposed"] == "Proposed questions (2)"
+    assert "evidence" not in labels  # tab removed for now (dogfooding feedback)
 
 
 def test_empty_panes_render_zero_rather_than_hiding(db):
     labels = _labels(_render(db, n_evidence=0, n_proposed=0))
-    assert labels["evidence"] == "Evidence (0)"
     assert labels["proposed"] == "Proposed questions (0)"
 
 
@@ -90,17 +89,19 @@ def test_single_artifact_tabs_get_no_count(db):
 
 def test_counts_are_not_double_appended(db):
     """The splice strips an existing '(n)' before writing, so a re-render can't produce
-    'Evidence (4) (4)'."""
+    'Proposed questions (2) (2)'."""
     out = _render(db, n_evidence=4, n_proposed=2)
-    assert "(4) (4)" not in out
-    assert len(re.findall(r"Evidence \(4\)", out)) == 1
+    assert "(2) (2)" not in out
+    assert len(re.findall(r"Proposed questions \(2\)", out)) == 1
 
 
 def test_tab_panes_and_order_survive(db):
-    """_TAB_DOC_RE / _TAB_EVID_RE / _TAB_PROP_RE anchor on these ids and their order."""
+    """_TAB_DOC_RE / _TAB_PROP_RE anchor on these ids and their order. Evidence removed
+    for now (dogfooding feedback)."""
     out = _render(db, n_evidence=2, n_proposed=1)
     order = [m.group(1) for m in re.finditer(r'<div id="(tab-[a-z]+)"', out)]
-    assert order == ["tab-doc", "tab-chart", "tab-evidence", "tab-proposed", "tab-draft"]
+    assert order == ["tab-doc", "tab-chart", "tab-proposed", "tab-draft"]
+    assert "tab-evidence" not in out
 
 
 def test_position_doc_still_splices_real_data(db):

@@ -725,6 +725,31 @@ def _msg_html(m: Any) -> str:
     )
 
 
+def _doc_field_text(val: Any) -> str:
+    """A Position Document field's value, normalised to displayable text.
+
+    The schema asks the LLM for a plain string per field (position_doc._SYSTEM), but
+    providers sometimes nest structured content instead -- e.g. `what_your_vote_means`
+    coming back as {'yes_consequence': ..., 'no_consequence': ...} rather than prose.
+    str()-ing that dict rendered its raw Python repr in the UI. Normalise defensively so
+    the doc always shows real content instead of a data structure, regardless of what a
+    given provider/model does on a particular call.
+    """
+    if val is None:
+        return ""
+    if isinstance(val, str):
+        return val
+    if isinstance(val, dict):
+        parts = []
+        for k, v in val.items():
+            label = str(k).replace("_", " ").strip().capitalize()
+            parts.append(f"**{label}:** {_doc_field_text(v)}")
+        return "\n\n".join(parts)
+    if isinstance(val, list):
+        return "\n".join(f"- {_doc_field_text(v)}" for v in val)
+    return str(val)
+
+
 def _evidence_html(evidence: list[dict]) -> str:
     if not evidence:
         return '<div class="evidence-item"><div class="evidence-title">No evidence bound yet.</div></div>'
@@ -766,7 +791,7 @@ def _position_doc_html(doc: dict | None) -> str:
         )
 
     def sec(label: str, key: str) -> str:
-        val = html.escape(str(doc.get(key, "")))
+        val = _render_markdown(_doc_field_text(doc.get(key)))
         return f'<div class="doc-section"><div class="doc-label">{label}</div><div class="doc-text">{val}</div></div>'
 
     return (
@@ -777,13 +802,13 @@ def _position_doc_html(doc: dict | None) -> str:
         + sec("Background &amp; impact", "background_impact")
         + '<div class="doc-section doc-grid">'
         + '<div class="doc-box for"><div class="doc-label">Argument for</div>'
-        + f'<div class="doc-text">{html.escape(str(doc.get("argument_for", "")))}</div>'
+        + f'<div class="doc-text">{_render_markdown(_doc_field_text(doc.get("argument_for")))}</div>'
         + '<div class="doc-label">Rebuttal</div>'
-        + f'<div class="doc-text">{html.escape(str(doc.get("rebuttal_for", "")))}</div></div>'
+        + f'<div class="doc-text">{_render_markdown(_doc_field_text(doc.get("rebuttal_for")))}</div></div>'
         + '<div class="doc-box against"><div class="doc-label">Argument against</div>'
-        + f'<div class="doc-text">{html.escape(str(doc.get("argument_against", "")))}</div>'
+        + f'<div class="doc-text">{_render_markdown(_doc_field_text(doc.get("argument_against")))}</div>'
         + '<div class="doc-label">Rebuttal</div>'
-        + f'<div class="doc-text">{html.escape(str(doc.get("rebuttal_against", "")))}</div></div>'
+        + f'<div class="doc-text">{_render_markdown(_doc_field_text(doc.get("rebuttal_against")))}</div></div>'
         + "</div>"
         + _prior_decisions_html(doc.get("prior_decisions") or [])
         + "</div>"
@@ -835,7 +860,10 @@ def render_workspace(
     """Splice real war-room session data into the template's Workspace view.
 
     Preserves all CSS/JS and the Inbox/Outcomes views. Replaces: ws-title, conversation
-    messages, position-doc tab, evidence tab, proposed-questions tab, and session stats.
+    messages, position-doc tab, proposed-questions tab, and session stats. The Evidence
+    tab is removed from the UI for now (Matt's call, dogfooding) -- `evidence` is still
+    accepted so callers/citations elsewhere don't need to change, it just isn't spliced
+    into a tab anymore.
     `db`/`workspace_slug` (#55): splices the Product switcher so it shows which product
     this session belongs to, same as Inbox/Outcomes.
     """
@@ -853,11 +881,12 @@ def render_workspace(
     src = _splice3(_WS_TITLE_RE, title, src, "ws-title")
     src = _splice3(_CONVO_RE, convo, src, "convo-scroll")
     src = _splice3(_TAB_DOC_RE, _position_doc_html(position_doc), src, "tab-doc")
-    src = _splice3(_TAB_EVID_RE, _evidence_html(evidence), src, "tab-evidence")
     src = _splice3(_TAB_PROP_RE, _proposed_html(proposed, session.id), src, "tab-proposed")
     # #108: counts come from the same lists spliced into the panes above, so the label
-    # can never disagree with the pane's contents.
-    src = _apply_tab_counts(src, {"evidence": len(evidence), "proposed": len(proposed)})
+    # can never disagree with the pane's contents. Evidence removed from the tab bar
+    # (for now, at Matt's request) -- _evidence_html/_TAB_EVID_RE stay defined, unused,
+    # so the tab is a one-line reinstate rather than a rebuild.
+    src = _apply_tab_counts(src, {"proposed": len(proposed)})
 
     src, n = _STATS_RE.subn(
         lambda m: f'{m.group(1)}<span id="sess-count">{n_exchanges}</span> exchanges{m.group(2)}', src
