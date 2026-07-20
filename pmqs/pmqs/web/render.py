@@ -1249,7 +1249,8 @@ document.addEventListener('DOMContentLoaded', function(){{
     return new_src.replace("</body>", js + "</body>")
 
 
-def _ledger_item_html(o: Any, payload: dict, author: str | None = None) -> str:
+def _ledger_item_html(o: Any, payload: dict, author: str | None = None,
+                      resolved_question: str | None = None) -> str:
     """One ledger row.
 
     `author` renders the "who decided this" half of Wave 1/2's whole point: the ledger is
@@ -1285,11 +1286,17 @@ def _ledger_item_html(o: Any, payload: dict, author: str | None = None) -> str:
         if otype == "meeting" and cal:
             links += f' · <a href="{cal}" target="_blank" rel="noopener">Add to calendar</a>'
         extras = f'<div class="ledger-src">{links}</div>'
+    # Show the loop closing: this outcome resolved a question the PM had in their Inbox.
+    # Rides the existing .ledger-src line (no new colour token, §11 drift guards stay green).
+    if resolved_question:
+        rq = html.escape(resolved_question)
+        extras += f'<div class="ledger-src">✓ resolved: {rq}</div>'
+    age = html.escape(_rel_age(getattr(o, "created_at", None)) or "")
     return (
         f'<div class="ledger-item" data-type="{otype}">'
         f'<span class="ledger-tag {otype}">{tag}</span>'
         f'<div class="ledger-main">{title}{ref}{extras}</div>'
-        f'<span class="ledger-time"></span></div>'
+        f'<span class="ledger-time">{age}</span></div>'
     )
 
 
@@ -1320,8 +1327,12 @@ def render_outcomes(db: Any, template_path: Path | None = None, *, product_id: s
     items = []
     for o in outcomes:
         counts[o.type] = counts.get(o.type, 0) + 1
+        rq = repository.session_question(db, o.session_id)
         items.append(
-            _ledger_item_html(o, repository.outcome_payload(o), authors.get(o.author_member_id))
+            _ledger_item_html(
+                o, repository.outcome_payload(o), authors.get(o.author_member_id),
+                resolved_question=(rq.title if rq is not None else None),
+            )
         )
 
     if items:

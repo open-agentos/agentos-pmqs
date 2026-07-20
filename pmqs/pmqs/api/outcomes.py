@@ -150,9 +150,17 @@ def create_typed_outcome(
     session = repository.get_session_row(db, session_id)
     product_id = session.product_id if session is not None else None
 
+    # The question this outcome resolves. Prefer an explicit form field, but fall back to
+    # the session's own question_id (room <-> question is 1:1) so committing an outcome
+    # closes the loop without the draft->commit JS having to carry the id. This is the
+    # fix for the dead end where an outcome committed and its Inbox question sat untouched.
+    resolved_qid = (question_id or (session.question_id if session is not None else "")) or ""
+
     if type == "issue":
-        # Promote to real GitHub. Prefer a linked Question if provided.
-        q = repository.get_question(db, question_id) if question_id else None
+        # Promote to real GitHub. Prefer the resolved Question; only fabricate one if the
+        # room truly had none (a self-directed session), rather than orphaning the real
+        # Inbox item behind a fresh ad-hoc duplicate.
+        q = repository.get_question(db, resolved_qid) if resolved_qid else None
         if q is None:
             # Create an ad-hoc Question from the session summary so the push path is uniform.
             q = repository.create_question(
@@ -207,6 +215,18 @@ def create_typed_outcome(
         db, session_id, kind="outcome",
         label=f"{_GLYPH.get(type, '•')} {type.title()} {_VERB.get(type, 'created')} — {title_str}",
     )
+    # Close the loop: the question that triggered this room is now resolved, so it leaves
+    # the Inbox and shows in the ledger as decided. Without this the outcome bar was a
+    # dead end -- work happened, the Inbox never changed, and no momentum was felt.
+    resolved_title = None
+    if resolved_qid:
+        rq = repository.mark_question_answered(db, resolved_qid)
+        if rq is not None:
+            resolved_title = rq.title
+            repository.add_event(
+                db, session_id, kind="outcome",
+                label=f"✓ Resolved — {resolved_title}",
+            )
     return JSONResponse({
         "type": type,
         "outcome_id": outcome.id,
@@ -214,6 +234,7 @@ def create_typed_outcome(
         "title": display_title(type, payload),
         "location": location_for(type),
         "export_url": f"/outcomes/{outcome.id}/export.md",
+        "resolved_question": resolved_title,
     })
 
 
