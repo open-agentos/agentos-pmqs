@@ -139,6 +139,20 @@ def update_question_status(db: OrmSession, qid: str, status: str) -> Question | 
     return q
 
 
+def mark_question_answered(db: OrmSession, qid: str) -> Question | None:
+    """Resolve a question because a war-room session produced an outcome for it.
+
+    'answered' is the fifth status (proposed|saved|dismissed|promoted|answered). Like
+    dismissed/promoted it is NOT in the Inbox's proposed|saved allow-list, so an answered
+    question drops out of the Inbox the moment its outcome commits -- this is what closes
+    the loop the outcome bar used to leave open (an outcome committed, the question that
+    triggered it sat in the Inbox untouched forever). 'promoted' stays the Issue-specific
+    resolution (the question became a real GitHub issue); 'answered' covers the other four
+    outcome types, whose resolution lives in the hosted-store ledger rather than GitHub.
+    """
+    return update_question_status(db, qid, "answered")
+
+
 def set_question_score(db: OrmSession, qid: str, score: float, dims: dict[str, Any]) -> Question | None:
     q = db.get(Question, qid)
     if q is None:
@@ -221,6 +235,22 @@ def close_session(db: OrmSession, sid: str, *, reason: str | None = None) -> Ses
         s.close_reason = reason
     db.commit()
     return s
+
+
+def session_question(db: OrmSession, sid: str | None) -> Question | None:
+    """The Question a war-room session was opened from (room <-> question is 1:1).
+
+    This is the join the ledger needs to show the loop closing: an outcome carries a
+    session_id, the session carries the question_id, and that question is the thing the
+    outcome resolved. Returns None for a room opened without a question (a self-directed
+    session) or a dangling reference.
+    """
+    if not sid:
+        return None
+    s = db.get(Session, sid)
+    if s is None or not s.question_id:
+        return None
+    return db.get(Question, s.question_id)
 
 
 def session_has_outcome(db: OrmSession, sid: str) -> bool:
