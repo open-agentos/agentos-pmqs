@@ -150,8 +150,8 @@ def test_inbox_has_persistent_refresh_button(client):
     repository.create_question(db, title="existing q", source="pm", status="proposed")
     db.close()
     html = client.get("/").text
-    assert "⟳ Refresh" in html
-    assert "pmqsRefresh()" in html
+    assert 'class="refresh-ico"' in html and "Refresh" in html
+    assert "pmqsRefresh(this)" in html
 
 
 def test_refresh_endpoint_redirects_with_report_token(client):

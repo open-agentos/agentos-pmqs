@@ -447,7 +447,7 @@ def render_inbox(questions: list[Any], template_path: Path | None = None,
             '<div class="card-meta">Refresh to collect from the repo and your news watchlist, or add your own above.</div>'
             '</div>'
             '<div class="card-actions" onclick="event.stopPropagation()">'
-            '<div class="icon-btn primary" title="Refresh — collect from repo + news" onclick="pmqsRefresh()">⟳</div>'
+            '<div class="icon-btn primary" title="Refresh — collect from repo + news" onclick="pmqsRefresh(this)"><span class="refresh-ico">⟳</span></div>'
             '</div></div>'
         )
 
@@ -464,9 +464,9 @@ def render_inbox(questions: list[Any], template_path: Path | None = None,
         '<div class="inbox-header" style="display:flex;align-items:center;gap:12px;'
         'justify-content:space-between;">'
         '<span>Inbox</span>'
-        '<button onclick="pmqsRefresh()" title="Refresh — collect from the repo and news watchlist" '
+        '<button onclick="pmqsRefresh(this)" title="Refresh — collect from the repo and news watchlist" '
         'style="background:#4a7d6e;color:#fff;border:0;border-radius:6px;padding:6px 14px;'
-        'font-size:12.5px;cursor:pointer;">⟳ Refresh</button>'
+        'font-size:12.5px;cursor:pointer;"><span class="refresh-ico">⟳</span> Refresh</button>'
         '</div>'
     )
     new_src, hn = re.subn(r'<div class="inbox-header">Inbox</div>', header_html, new_src)
@@ -520,7 +520,10 @@ function addQuestion(){{
   if(!val) return;
   pmqsPost('{_prefix}/quick-add', {{title: val}});
 }}
-function pmqsRefresh(){{ pmqsPost('{_prefix}/refresh', {{}}); }}
+function pmqsRefresh(el){{
+  try{{ var ico=(el&&el.querySelector)?el.querySelector('.refresh-ico'):null; if(ico) ico.classList.add('spinning'); }}catch(e){{}}
+  pmqsPost('{_prefix}/refresh', {{}});
+}}
 // The home page is always the Inbox — never leave another view active.
 document.addEventListener('DOMContentLoaded', function(){{
   if (typeof showView === 'function') showView('inbox');
