@@ -52,9 +52,10 @@ def test_render_workspace_empty_states(db):
     sess = repository.open_session(db, topic="empty session")
     out = render_workspace(sess, [], [], [], None)
     assert "Run lenses" in out           # proposed empty-state hint
+    assert "No evidence bound yet" in out
     assert "Not generated yet" in out    # position doc empty-state
     assert 'id="view-inbox"' in out
-    assert "tab-evidence" not in out     # Evidence tab removed for now
+    assert "tab-chart" not in out        # Impacts tab removed for now (unfinished)
 
 
 def test_outcome_bar_uses_inline_fetch_receipt(db):
