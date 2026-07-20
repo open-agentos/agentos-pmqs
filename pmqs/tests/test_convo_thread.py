@@ -121,9 +121,6 @@ def test_avatar_initials_are_legible_on_their_fill():
         )
 
 
-def test_the_specced_avatar_pairing_really_would_have_failed():
-    assert contrast(_token("accent-teal-fg"), _token("accent-teal")) < 3.0
-
 
 def test_convo_anchor_classes_and_order_survive(convo):
     """_CONVO_RE matches .convo-scroll … .convo-input; both names and their order are

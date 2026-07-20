@@ -1,11 +1,11 @@
 """Tests for the logo socket (web/logo.py + web/assets/*.svg).
 
-Brand doc section 2 is still open — the per-facet bevel is coming. These pin the
-things that must survive a re-cut, and deliberately do NOT pin facet
-coordinates, which the design agent is expected to change.
+The mark is the quill/A (brand doc section 2), a first pass to be revisited.
+These pin what must survive an edit — square + shared viewBox, well-formed XML,
+the two brand-token colours, the size threshold — and deliberately do NOT pin
+path coordinates, which the design agent is expected to change.
 """
 
-import io
 import re
 from xml.etree import ElementTree
 
@@ -16,21 +16,14 @@ from pmqs.web import logo
 from pmqs.web.render import render_inbox
 
 
-def _polys(group_id: str) -> list[str]:
-    svg = logo.MARK_PATH.read_text(encoding="utf-8")
-    body = svg.split(f'id="{group_id}"', 1)[1].split("</g>", 1)[0]
-    return re.findall(r'points="([^"]+)"', body)
-
-
 # --- geometry that must survive a re-cut -----------------------------------
 
 
-def test_mark_has_tight_square_viewbox():
-    """The reference draft used viewBox 0 0 680 520 for artwork occupying ~18%
-    of it — small and off-centre in any fixed box."""
+def test_mark_has_a_square_viewbox():
+    """A tile mark has to sit in a square box or it distorts at every size."""
     vb = re.search(r'viewBox="([^"]+)"', logo.logo_svg()).group(1)
     _, _, w, h = (float(v) for v in vb.split())
-    assert w == h == 252.0
+    assert w == h
 
 
 def test_both_variants_share_a_viewbox():
@@ -38,24 +31,6 @@ def test_both_variants_share_a_viewbox():
     def vb(svg):
         return re.search(r'viewBox="([^"]+)"', svg).group(1)
     assert vb(logo._detailed_source()) == vb(logo._fallback_source())
-
-
-def test_tail_has_exactly_eight_facets():
-    """One per analytical lens: eight perspectives narrowing to one point of
-    resolution. If a re-cut changes this, it should be deliberate."""
-    assert len(_polys("tail")) == 8
-
-
-def test_ring_has_eleven_facets():
-    assert len(_polys("ring")) == 11
-
-
-def test_no_degenerate_polygons():
-    """The reference draft's tail tip was a quad with a duplicated vertex."""
-    for group in ("ring", "tail"):
-        for pts in _polys(group):
-            verts = pts.split()
-            assert len(verts) == len(set(verts)), f"duplicated vertex in {group}: {pts}"
 
 
 def test_both_variants_are_well_formed_xml():
@@ -79,8 +54,8 @@ def test_brand_tokens_have_not_drifted_from_the_mark():
     css = config.APP_TEMPLATE.read_text(encoding="utf-8")
     mark = logo.MARK_PATH.read_text(encoding="utf-8")
 
-    for token, why in [("--accent-gold", "the tail's resolve"),
-                       ("--text-primary", "the centre point")]:
+    for token, why in [("--accent-gold", "the tile"),
+                       ("--on-accent", "the glyph")]:
         value = re.search(rf"{token}\s*:\s*(#[0-9a-fA-F]{{6}})", css).group(1)
         assert value.lower() in mark.lower(), (
             f"{token} is {value} in the template but the mark does not use it "
@@ -99,16 +74,15 @@ def test_design_agent_comments_do_not_ship():
 
 def test_small_sizes_get_the_fallback_automatically():
     """Enforced in the helper, not left to call sites."""
-    assert 'id="ring"' not in logo.logo_svg(16)
-    assert 'id="ring"' in logo.logo_svg(128)
+    assert 'id="apex"' not in logo.logo_svg(16)
+    assert 'id="apex"' in logo.logo_svg(128)
 
 
 def test_rail_uses_the_fallback_deliberately():
-    """The rail draws at 30px, below MIN_DETAIL_PX. Not an oversight: the
-    detailed mark shows 0.55px² of gold at 30px, i.e. a teal ring with a teal
-    tail and no resolution at all."""
+    """The rail draws at 30px, below MIN_DETAIL_PX, so it gets the sturdier
+    simplified glyph (heavier strokes, no apex point) that holds up small."""
     assert logo.RAIL_MARK_PX < logo.MIN_DETAIL_PX
-    assert 'id="ring"' not in logo.lockup_html()
+    assert 'id="apex"' not in logo.lockup_html()
 
 
 def test_size_sets_dimensions():
@@ -116,25 +90,11 @@ def test_size_sets_dimensions():
     assert 'height="128"' in logo.logo_svg(128)
 
 
-def test_fallback_keeps_the_resolve_visible_at_favicon_scale():
-    """The whole reason the fallback exists. Section 2's idea is 'clarity
-    arriving late, and only once earned' — if gold is sub-pixel, the mark cannot
-    say it. cairosvg is a dev-time measurement tool, not a runtime dependency."""
-    cairosvg = pytest.importorskip("cairosvg")
-    PIL = pytest.importorskip("PIL.Image")
-
-    def gold_px(svg, px):
-        png = cairosvg.svg2png(bytestring=svg.encode(), output_width=px,
-                               output_height=px, background_color="#12181c")
-        im = PIL.open(io.BytesIO(png)).convert("RGB")
-        return sum(1 for x in range(px) for y in range(px)
-                   if (lambda c: c[0] - c[2] > 40 and c[0] > 90)(im.getpixel((x, y))))
-
-    assert gold_px(logo.favicon_svg(), 16) >= 3, "fallback must show its resolve at 16px"
-    assert gold_px(logo._detailed_source(), 16) == 0, (
-        "if the detailed mark now shows gold at 16px the taper was re-cut — "
-        "lower MIN_DETAIL_PX"
-    )
+def test_both_variants_carry_the_glyph_not_just_the_tile():
+    """A tile with no A is not the mark. Both variants must draw the quill/A
+    strokes, not merely the amber square."""
+    for src in (logo._detailed_source(), logo._fallback_source()):
+        assert src.count("<path") >= 2, "the A + crossbar strokes must be present"
 
 
 # --- accessibility + wiring ------------------------------------------------

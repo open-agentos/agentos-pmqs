@@ -18,9 +18,6 @@ from pmqs import repository
 from pmqs.web.render import render_workspace
 
 TEMPLATE = Path(__file__).parent.parent / "pmqs" / "web" / "templates" / "app.html"
-PAPER = "#efe9dd"
-
-
 def _luminance(hex_colour: str) -> float:
     h = hex_colour.lstrip("#")
     chans = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
@@ -116,30 +113,22 @@ def test_position_doc_still_splices_real_data(db):
 # --- The reason this issue deviates from its spec ---
 
 def test_for_against_markers_are_legible_on_paper():
-    """The spec asked for --accent-sage (+) and --pulse-coral (−). Both are chosen
-    against --bg-main and neither survives --paper, which is the surface .doc-grid is
-    actually on. If someone 'corrects' this back to the spec, this fails."""
+    """The for/against markers sit on --paper (the doc surface), so their colour must
+    clear 4.5:1 there. On this light identity the legible choice is the full
+    --accent-sage / --pulse-coral (dark green/red), read from the shipped rules."""
     src = TEMPLATE.read_text(encoding="utf-8")
     for rule in (r"\.doc-box\.for \.doc-text::before\{[^}]*color:var\(--([a-z-]+)\)",
                  r"\.doc-box\.against \.doc-text::before\{[^}]*color:var\(--([a-z-]+)\)"):
         m = re.search(rule, src)
         assert m, f"marker rule missing: {rule}"
-        ratio = contrast(_token(m.group(1)), PAPER)
+        ratio = contrast(_token(m.group(1)), _token("paper"))
         assert ratio >= 4.5, (
             f"--{m.group(1)} is {ratio:.2f}:1 on --paper; the for/against markers sit on "
             f"the paper document surface and must clear 4.5:1"
         )
 
 
-def test_the_specced_tokens_really_would_have_failed():
-    """Documents the finding rather than just asserting the fix — if the palette is
-    ever retuned so sage/coral do work on paper, this fails and the deviation should
-    be revisited."""
-    assert contrast(_token("accent-sage"), PAPER) < 3.0
-    assert contrast(_token("pulse-coral"), PAPER) < 3.0
-
-
 def test_marker_colours_match_their_box_borders():
     src = TEMPLATE.read_text(encoding="utf-8")
-    assert ".doc-box.for{border-left:3px solid var(--accent-teal-dim);}" in src
-    assert ".doc-box.against{border-left:3px solid var(--pulse-coral-dim);}" in src
+    assert ".doc-box.for{border-left:3px solid var(--accent-sage);}" in src
+    assert ".doc-box.against{border-left:3px solid var(--pulse-coral);}" in src

@@ -7,13 +7,12 @@ Two variants, and choosing between them is NOT a judgement call at the call
 site — logo_svg() picks by size. See MIN_DETAIL_PX for why the threshold sits
 where it does; it is measured, not inherited from the spec.
 
-  assets/logo-mark.svg      the detailed mark: 11 ring facets, 8 tail facets
-  assets/logo-fallback.svg  the simplified glyph: solid C-ring, two-tone tail
+  assets/logo-mark.svg      the detailed mark: quill/A glyph with an apex point
+  assets/logo-fallback.svg  the simplified glyph: no apex point, heavier strokes
 
-Both share a viewBox, so they are drop-in swappable. Brand doc section 2 is
-still open — the per-facet embedded bevel is the priority refinement and is in
-neither file. When it lands, the design agent edits one .svg and every surface
-follows.
+Both share a viewBox, so they are drop-in swappable. The mark is the quill/A
+(brand doc section 2), a first pass to be revisited. When it changes, the design
+agent edits one .svg and every surface follows.
 
 Surfaces that need the mark:
   - the left rail lockup, spliced into templates/app.html by render.py
@@ -35,24 +34,11 @@ FALLBACK_PATH = _ASSETS / "logo-fallback.svg"
 
 #: Below this, logo_svg() returns the simplified glyph.
 #:
-#: Brand doc section 2 estimated 24px, on the theory that facet detail stops
-#: resolving. Measured, that is wrong in both directions. The facets survive
-#: fine — all three ring tones are still distinguishable at 12px. What dies is
-#: the *resolve*: the tail's gold tip is 0.017% of the mark's area, and
-#: rasterised against the app background, gold runs 1:740 against teal. Pixels
-#: of gold, by render size:
-#:
-#:     16px -> 0.16   30px -> 0.55   48px -> 1.40   64px -> 2.48   128px -> ~11
-#:
-#: So the mark shows no resolution at all until roughly 128px — and the rail
-#: draws it at 30px. 64 is where the detailed mark starts to have anything to
-#: say that the fallback does not say better. Below it the fallback is not a
-#: degraded substitute; it is the more faithful one.
-#:
-#: The real fix is the taper geometry, which is the design agent's call: section
-#: 2 wants gold in "the final one or two facets" while the taper accelerates
-#: toward the tip, so the facets carrying the meaning are by construction the
-#: smallest. If the mark is re-cut so the resolve survives at ~30px, lower this.
+#: Below this the detailed mark's apex point closes to a blob and its 2.2 strokes
+#: thin out, so logo_svg() switches to the sturdier simplified glyph (no apex
+#: point, 2.8 strokes). The quill/A stays legible far smaller than the old
+#: faceted mark did, so this threshold is conservative; lower it if the detailed
+#: mark proves to hold up below 64px in practice.
 MIN_DETAIL_PX = 64
 
 #: The rail lockup. Below MIN_DETAIL_PX, so it gets the fallback — deliberately.
