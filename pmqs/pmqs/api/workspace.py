@@ -52,6 +52,7 @@ def _proposed_for(db: OrmSession, session) -> list:
 def open_workspace(
     workspace_slug: str | None = None,
     question_id: str = Form(default=""),
+    topic: str = Form(default=""),
     db: OrmSession = Depends(get_session),
 ):
     try:
@@ -71,11 +72,14 @@ def open_workspace(
         if existing is not None:
             return RedirectResponse(url=f"{prefix}/workspace/{existing.id}", status_code=303)
 
-    topic = None
+    # A room's topic: a question's title when opened from the Inbox, otherwise the
+    # free-text prompt the PM typed into the nav's "Start a war room" (rec 5 — a
+    # self-directed strategic session, not only a reaction to a system-raised question).
+    room_topic = topic.strip() or None
     if qid:
         q = repository.get_question(db, qid)
-        topic = q.title if q else None
-    sess = repository.open_session(db, topic=topic, question_id=qid, product_id=product_id)
+        room_topic = q.title if q else None
+    sess = repository.open_session(db, topic=room_topic, question_id=qid, product_id=product_id)
     return RedirectResponse(url=f"{prefix}/workspace/{sess.id}", status_code=303)
 
 

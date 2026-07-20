@@ -9,7 +9,7 @@ outcomes created against it inherit that scoping automatically.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from sqlalchemy.orm import Session as OrmSession
 
 from pmqs import members, products, repository
@@ -358,6 +358,54 @@ def promote_outcome(outcome_id: str, db: OrmSession = Depends(get_session)):
     if o is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     return JSONResponse({"id": o.id, "promoted_at": o.promoted_at})
+
+
+_DIRECT_TYPES = ("policy", "document", "meeting", "question")
+
+
+@router.post("/outcomes/new")
+@router.post("/w/{workspace_slug}/outcomes/new")
+def create_direct_outcome(
+    workspace_slug: str | None = None,
+    type: str = Form(...),
+    title: str = Form(default=""),
+    body: str = Form(default=""),
+    db: OrmSession = Depends(get_session),
+):
+    """Record an outcome directly, with no war-room session — the nav's everpresent
+    "Record an outcome" (Wave 4 / rec 5). It lands in the ledger as a 'direct' outcome
+    (session_id is None, which the ledger already labels "· direct").
+
+    Issue is deliberately NOT offered here: an Issue means "push to GitHub", which belongs
+    to the question → war-room → push flow, not a context-free jot. The four hosted types
+    cover "I already decided this, let me record it" — and the PM can flesh any of them out
+    afterwards with the live-ledger editor, so title-only capture is enough.
+    """
+    try:
+        product_id = products.resolve_product_id(db, workspace_slug)
+    except KeyError:
+        return HTMLResponse(render_error(f"No such product workspace: {workspace_slug}", 404),
+                            status_code=404)
+    t = (type or "").strip().lower()
+    if t not in _DIRECT_TYPES:
+        return JSONResponse(
+            {"error": f"{t or 'that'} can't be recorded directly — raise it from a question"},
+            status_code=400,
+        )
+    try:
+        if t == "policy":
+            payload = build_policy(title)          # policy is free text; the title field carries it
+        elif t == "document":
+            payload = build_document(title, body)
+        elif t == "meeting":
+            payload = build_meeting(title, body, "")
+        else:  # question
+            payload = build_question(title, body)
+    except OutcomeValidationError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    repository.create_outcome(db, type=t, payload=payload, product_id=product_id, session_id=None)
+    base = f"/w/{workspace_slug}" if workspace_slug else ""
+    return RedirectResponse(url=f"{base}/outcomes", status_code=303)
 
 
 @router.get("/outcomes/{outcome_id}/export.md")

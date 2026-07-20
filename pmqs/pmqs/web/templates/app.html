@@ -85,7 +85,58 @@ h1,h2,h3,.serif{font-family:var(--font-doc);}
   width:220px;flex-shrink:0;background:var(--bg-surface);
   border-right:1px solid var(--border-default);
   display:flex;flex-direction:column;padding:22px 18px;
+  position:relative;transition:width .14s ease;
 }
+
+/* Global create menu (rec 5) — one quiet entry, progressive disclosure. Existing tokens
+   only, so test_brand_doc's §3 palette guard stays green. */
+.create-wrap{position:relative;margin:0 0 18px;}
+.create-btn{width:100%;display:flex;align-items:center;gap:8px;background:var(--bg-active);
+  border:1px solid var(--border-default);color:var(--text-secondary);border-radius:7px;
+  padding:8px 12px;font-size:13px;font-family:inherit;cursor:pointer;transition:all .12s;}
+.create-btn:hover{color:var(--accent-gold);border-color:var(--accent-gold-dim);}
+.create-btn .cb-plus{font-weight:600;}
+.create-pop{display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:40;
+  background:var(--bg-raised);border:1px solid var(--border-default);border-radius:9px;padding:6px;
+  box-shadow:0 10px 34px rgba(0,0,0,.30);}
+.create-wrap.open .create-pop{display:block;}
+.create-opt{display:block;width:100%;text-align:left;background:none;border:none;color:var(--text-secondary);
+  padding:8px 10px;border-radius:6px;font-size:13px;font-family:inherit;cursor:pointer;}
+.create-opt:hover{background:var(--bg-active);color:var(--text-primary);}
+.create-form{display:none;padding:4px;}
+.create-form.show{display:block;}
+.create-form input{width:100%;box-sizing:border-box;background:var(--bg-surface);border:1px solid var(--border-default);
+  color:var(--text-primary);border-radius:6px;padding:8px 10px;font-size:13px;font-family:inherit;}
+.create-form input:focus{outline:none;border-color:var(--accent-gold-dim);}
+.cf-types{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;}
+.cf-type{font-family:var(--font-mono);font-size:10px;padding:3px 7px;border-radius:5px;cursor:pointer;
+  border:1px solid var(--border-default);background:var(--bg-surface);color:var(--text-secondary);}
+.cf-type.active{color:var(--accent-gold);border-color:var(--accent-gold-dim);}
+
+/* Collapsible rail (side note). Collapsed = a slim icon strip: hide labels/badges/pulse/
+   switcher, and give each nav item a glyph via ::before so it stays navigable. Pure CSS +
+   a class + localStorage — no nav markup restructuring, so the template-contract anchors
+   and _apply_rail's spliced regions are untouched. */
+.rail-toggle{position:absolute;top:14px;right:10px;background:none;border:none;color:var(--text-muted);
+  font-size:15px;line-height:1;cursor:pointer;padding:2px 5px;border-radius:5px;z-index:5;}
+.rail-toggle:hover{color:var(--text-secondary);background:var(--bg-active);}
+#rail.collapsed{width:60px;padding-left:10px;padding-right:10px;}
+#rail.collapsed .logo-text,
+#rail.collapsed .cb-label,
+#rail.collapsed .nav-badge,
+#rail.collapsed .pulse-box,
+#rail.collapsed .rail-foot,
+#rail.collapsed .org b,
+#rail.collapsed .org br,
+#rail.collapsed .create-pop{display:none;}
+#rail.collapsed .create-btn{justify-content:center;padding:8px 0;}
+#rail.collapsed .nav-item{font-size:0;text-align:center;padding-left:0;padding-right:0;}
+#rail.collapsed .nav-item::before{font-size:15px;}
+#rail.collapsed .nav-item[data-nav="inbox"]::before{content:"▤";}
+#rail.collapsed .nav-item[data-nav="workspace"]::before{content:"⚔";}
+#rail.collapsed .nav-item[data-nav="outcomes"]::before{content:"✓";}
+#rail.collapsed .org{text-align:center;font-size:0;}
+#rail.collapsed .org::before{content:"⚙";font-size:15px;}
 /* §2 clearspace: >= 0.5x mark height on all sides. Mark is 30px, #rail pads
    22px/18px, so the rule holds. */
 .logo-lockup{display:flex;align-items:center;gap:10px;margin-bottom:28px;}
@@ -496,6 +547,7 @@ textarea.set-input{min-height:64px;}
 
   <!-- LEFT RAIL -->
   <div id="rail">
+    <button class="rail-toggle" onclick="pmqsToggleRail()" title="Collapse / expand sidebar" aria-label="Collapse sidebar">‹</button>
     <!-- LOGO LOCKUP. The mark is injected by render.py from web/logo.py, which
          reads web/assets/logo-mark.svg — one source, because render_settings()
          and render_error() build their own documents and #28 needs a favicon.
@@ -523,6 +575,34 @@ textarea.set-input{min-height:64px;}
             </form>
             <a class="ps-item" id="ps-add-detailed" href="/products/new">Add with details…</a>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Global create menu (rec 5): one quiet, everpresent entry to capture from any
+         view — ask a question, start a self-directed war room, or record an outcome.
+         Open/close + form-switch are template JS; the submit is prefix-aware in
+         render.py's live JS so each action stays inside the product being viewed. -->
+    <div class="create-wrap" id="create-wrap">
+      <button class="create-btn" onclick="pmqsToggleCreate(event)"><span class="cb-plus">+</span> <span class="cb-label">New</span></button>
+      <div class="create-pop">
+        <button class="create-opt" onclick="pmqsCreateShow('q')">Ask a question</button>
+        <button class="create-opt" onclick="pmqsCreateShow('w')">Start a war room</button>
+        <button class="create-opt" onclick="pmqsCreateShow('o')">Record an outcome</button>
+        <div class="create-form" id="cf-q">
+          <input id="cf-q-input" placeholder="Ask a question…" onkeydown="if(event.key==='Enter')pmqsCreateSubmit('q')">
+        </div>
+        <div class="create-form" id="cf-w">
+          <input id="cf-w-input" placeholder="What do you want to think through?" onkeydown="if(event.key==='Enter')pmqsCreateSubmit('w')">
+        </div>
+        <div class="create-form" id="cf-o">
+          <div class="cf-types">
+            <button class="cf-type active" data-type="policy" onclick="pmqsPickType(this)">Policy</button>
+            <button class="cf-type" data-type="document" onclick="pmqsPickType(this)">Document</button>
+            <button class="cf-type" data-type="meeting" onclick="pmqsPickType(this)">Meeting</button>
+            <button class="cf-type" data-type="question" onclick="pmqsPickType(this)">Question</button>
+          </div>
+          <input id="cf-o-input" placeholder="Title…" onkeydown="if(event.key==='Enter')pmqsCreateSubmit('o')">
         </div>
       </div>
     </div>
@@ -926,6 +1006,38 @@ function showView(name){
 }
 function openWorkspace(){ showView('workspace'); }
 function toggleTheme(){var d=document.documentElement,dark=d.getAttribute('data-theme')==='dark';if(dark){d.removeAttribute('data-theme');}else{d.setAttribute('data-theme','dark');}try{localStorage.setItem('pmqs-theme',dark?'light':'dark');}catch(e){}}
+
+// --- Global create menu (rec 5): open/close + form-switch (submit is in live JS) ---
+function pmqsToggleCreate(e){ e.stopPropagation(); document.getElementById('create-wrap').classList.toggle('open'); }
+function pmqsCreateShow(kind){
+  ['q','w','o'].forEach(function(k){ document.getElementById('cf-'+k).classList.toggle('show', k===kind); });
+  var inp = document.getElementById('cf-'+kind+'-input'); if(inp) setTimeout(function(){ inp.focus(); }, 0);
+}
+function pmqsPickType(btn){
+  btn.parentNode.querySelectorAll('.cf-type').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+}
+document.addEventListener('click', function(e){
+  var w = document.getElementById('create-wrap');
+  if(w && w.classList.contains('open') && !w.contains(e.target)) w.classList.remove('open');
+});
+document.addEventListener('keydown', function(e){
+  if(e.key==='Escape'){ var w=document.getElementById('create-wrap'); if(w) w.classList.remove('open'); }
+});
+
+// --- Collapsible rail (side note), persisted in localStorage ---
+function pmqsToggleRail(){
+  var r = document.getElementById('rail');
+  var collapsed = r.classList.toggle('collapsed');
+  var t = document.querySelector('.rail-toggle'); if(t) t.textContent = collapsed ? '›' : '‹';
+  try{ localStorage.setItem('pmqs-rail', collapsed ? '1' : '0'); }catch(e){}
+}
+(function(){ try{
+  if(localStorage.getItem('pmqs-rail')==='1'){
+    var r=document.getElementById('rail'); if(r){ r.classList.add('collapsed'); }
+    var t=document.querySelector('.rail-toggle'); if(t) t.textContent='›';
+  }
+}catch(e){} })();
 document.querySelectorAll('.nav-item').forEach(n=>{
   n.addEventListener('click',()=>showView(n.dataset.nav));
 });
