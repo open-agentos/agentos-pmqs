@@ -145,7 +145,7 @@ async def research_product_endpoint(request: Request, db: OrmSession = Depends(g
 
 @router.get("/api/workspaces")
 def list_workspaces(db: OrmSession = Depends(get_session)):
-    rows = products.list_products(db)
+    rows = products.list_products(db, member_id=members.current_member_id(db))
     return JSONResponse(
         [
             {

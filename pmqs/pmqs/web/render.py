@@ -148,7 +148,8 @@ def _apply_product_switcher(src: str, db: Any, workspace_slug: str | None) -> st
     """
     from pmqs import products
 
-    all_products = products.list_products(db)
+    from pmqs import members
+    all_products = products.list_products(db, member_id=members.current_member_id(db))
     if not all_products:
         return src  # nothing to show yet (e.g. DB not initialised in this render path)
 
@@ -881,7 +882,8 @@ def render_workspace(
     # Inject session-aware live wiring: override the template's demo handlers so the
     # war-room buttons hit real endpoints for THIS session.
     sid = session.id
-    ws_js = _live_js_common() + f"""
+    _prefix = f"/w/{workspace_slug}" if workspace_slug else ""
+    ws_js = _live_js_common(_prefix) + f"""
 <script>
 var PMQS_SID = {sid!r};
 
@@ -940,7 +942,7 @@ function sendMsg(){{
   }}
   input.value=''; pmqsBusy(true);
   var busy = pmqsBusyLine('War-room is thinking…');
-  pmqsAjax('/workspace/'+PMQS_SID+'/message', {{content: val}})
+  pmqsAjax('{_prefix}/workspace/'+PMQS_SID+'/message', {{content: val}})
     .then(function(res){{
       if(busy) busy.remove();
       if(res.ok && res.j.assistant_html) pmqsAppendHTML(res.j.assistant_html);
@@ -953,7 +955,7 @@ function sendMsg(){{
 function pmqsRunLenses(){{
   pmqsBusy(true);
   var busy = pmqsBusyLine('Running 8-lens pass…');
-  pmqsAjax('/workspace/'+PMQS_SID+'/run-lenses', {{}})
+  pmqsAjax('{_prefix}/workspace/'+PMQS_SID+'/run-lenses', {{}})
     .then(function(res){{
       if(busy) busy.remove();
       if(res.ok){{ pmqsAppendHTML(res.j.event_html); pmqsRefreshTab(res.j.tab, res.j.tab_html, res.j.tab_count); }}
@@ -965,7 +967,7 @@ function pmqsRunLenses(){{
 function pmqsGenDoc(){{
   pmqsBusy(true); pmqsPaneBusy(true);
   var busy = pmqsBusyLine('Generating position document…');
-  pmqsAjax('/workspace/'+PMQS_SID+'/position-doc', {{}})
+  pmqsAjax('{_prefix}/workspace/'+PMQS_SID+'/position-doc', {{}})
     .then(function(res){{
       if(busy) busy.remove();
       if(res.ok){{ if(res.j.event_html) pmqsAppendHTML(res.j.event_html); pmqsRefreshTab(res.j.tab, res.j.tab_html, null); }}
@@ -974,7 +976,7 @@ function pmqsGenDoc(){{
     .catch(function(){{ if(busy) busy.remove(); }})
     .finally(function(){{ pmqsBusy(false); pmqsPaneBusy(false); }});
 }}
-function pmqsAddProposed(qid, btn){{ pmqsPost('/workspace/'+PMQS_SID+'/proposed/'+qid+'/add', {{}}); }}
+function pmqsAddProposed(qid, btn){{ pmqsPost('{_prefix}/workspace/'+PMQS_SID+'/proposed/'+qid+'/add', {{}}); }}
 // Outcome bar → real typed-outcome endpoint, rendered INLINE (no navigation).
 // Wave 1: this replaces the old full-page form submit that dumped the PM on a raw
 // JSON blob. The receipt says what was made and links to where it now lives.
@@ -1004,7 +1006,7 @@ function pmqsCommitOutcome(type, fields){{
   if(fields.agenda) body.set('agenda', fields.agenda);
   if(fields.calendar_link) body.set('calendar_link', fields.calendar_link);
   if(type === 'policy') body.set('body', fields.text || fields.body || fields.title || '');
-  fetch('/workspace/'+PMQS_SID+'/outcome', {{
+  fetch('{_prefix}/workspace/'+PMQS_SID+'/outcome', {{
     method:'POST', headers:{{'Content-Type':'application/x-www-form-urlencoded'}}, body: body.toString()
   }}).then(function(r){{ return r.json().then(function(j){{ return {{ok:r.ok, j:j}}; }}); }})
     .then(function(res){{
@@ -1076,7 +1078,7 @@ function pmqsDraft(type){{
   pmqsPaneBusy(true);
   var busy = (typeof pmqsBusyLine === 'function') ? pmqsBusyLine('Drafting ' + type + ' from this session…') : null;
   var body = new URLSearchParams(); body.set('type', type);
-  fetch('/workspace/'+PMQS_SID+'/draft', {{
+  fetch('{_prefix}/workspace/'+PMQS_SID+'/draft', {{
     method:'POST', headers:{{'Content-Type':'application/x-www-form-urlencoded'}}, body: body.toString()
   }}).then(function(r){{ return r.json(); }})
     .then(function(j){{
@@ -1137,7 +1139,7 @@ function pmqsWrapUp(){{
   if(panel && panel.style.display === 'block'){{ panel.style.display = 'none'; return; }}  // toggle
   if(panel){{ panel.style.display = 'block'; panel.innerHTML = '<div class="wrapup-suggest">Thinking about the best outcome…</div>'; }}
   var body = new URLSearchParams();
-  fetch('/workspace/'+PMQS_SID+'/suggest-outcome', {{
+  fetch('{_prefix}/workspace/'+PMQS_SID+'/suggest-outcome', {{
     method:'POST', headers:{{'Content-Type':'application/x-www-form-urlencoded'}}, body: body.toString()
   }}).then(function(r){{ return r.json(); }})
     .then(function(j){{ pmqsRenderWrapup(j); }})
@@ -1145,7 +1147,7 @@ function pmqsWrapUp(){{
 }}
 function pmqsCloseRoom(reason){{
   var body = new URLSearchParams(); body.set('reason', reason);
-  fetch('/workspace/'+PMQS_SID+'/close', {{
+  fetch('{_prefix}/workspace/'+PMQS_SID+'/close', {{
     method:'POST', headers:{{'Content-Type':'application/x-www-form-urlencoded'}}, body: body.toString()
   }}).then(function(r){{ return r.json(); }})
     .then(function(){{
