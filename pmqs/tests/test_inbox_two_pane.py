@@ -105,3 +105,18 @@ def test_detail_html_cannot_close_the_script_tag(db):
     blob = blob[:blob.index("</script>")]
     assert "</script>" not in blob
     assert "<\\/script>" in blob or "<\\/" in blob
+
+
+def test_detail_pane_is_a_distinct_lighter_surface_with_a_divider(questions):
+    """Dogfooding polish: the detail pane reads as a distinct, cleaner surface against
+    the list (the lightest parchment, --bg-surface) with a full-height vertical
+    separator between the two columns."""
+    out = render_inbox(questions)
+    # the separator element is present between the columns
+    assert '<div class="inbox-divider"' in out
+    # and it's a full-height rule (align-self:stretch is what makes that work)
+    assert ".inbox-divider{align-self:stretch" in out
+    # the detail pane is lifted onto the lightest surface, not left on the canvas
+    assert ".inbox-detail{" in out
+    detail_rule = out.split(".inbox-detail{", 1)[1].split("}", 1)[0]
+    assert "background:var(--bg-surface)" in detail_rule

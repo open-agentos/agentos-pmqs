@@ -210,9 +210,21 @@ svg.pulse{width:100%;height:28px;display:block;}
 .view.active{display:block;}
 
 /* ---------- INBOX VIEW ---------- */
-.inbox-wrap{max-width:1180px;margin:0 auto;padding:40px 32px 80px;display:flex;gap:26px;align-items:flex-start;}
-.inbox-list{width:470px;flex-shrink:0;min-width:0;}
-.inbox-detail{flex:1;min-width:0;position:sticky;top:40px;}
+.inbox-wrap{max-width:1220px;margin:0 auto;padding:36px 30px 80px;display:flex;gap:28px;align-items:flex-start;}
+.inbox-list{width:448px;flex-shrink:0;min-width:0;}
+/* Full-height rule between the list and the detail. align-self:stretch makes this
+   contentless flex item span the tallest column, so the line always runs the full
+   height of whichever side is longer -- no hardcoded offsets to drift. */
+.inbox-divider{align-self:stretch;width:1px;background:var(--border-default);flex-shrink:0;}
+/* The detail reads as a distinct, cleaner reading surface: the lightest parchment
+   (--bg-surface), lifted off the canvas tone the list cards sit on, softly bounded. */
+.inbox-detail{flex:1;min-width:0;position:sticky;top:32px;
+  background:var(--bg-surface);border:1px solid var(--border-muted);border-radius:12px;
+  padding:28px 32px;}
+/* Inside the lighter detail panel, source cards drop to the canvas tone so the Issue/
+   news box still reads as a card instead of blending into the panel. Scoped to the
+   inbox detail so the Evidence tab's cards elsewhere are untouched. */
+.inbox-detail .source-card{background:var(--bg-main);}
 .card.selected{border-color:var(--accent-teal-dim);border-left-color:var(--accent-teal-dim);background:var(--bg-raised);}
 .card.selected.system,.card.selected.asked,.card.selected.saved{border-left-color:var(--accent-teal-dim);}
 
@@ -323,7 +335,7 @@ textarea.set-input{min-height:64px;}
 
 .card{
   background:var(--bg-active);border:1px solid var(--border-default);border-left:3px solid var(--border-default);
-  border-radius:6px;padding:16px 18px;margin-bottom:10px;cursor:pointer;
+  border-radius:6px;padding:16px 18px;margin-bottom:12px;cursor:pointer;
   display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
   transition:border-color .15s, transform .1s;
 }
@@ -726,6 +738,8 @@ textarea.set-input{min-height:64px;}
         </div>
         <!-- /INBOX CARDS -->
         </div>
+
+        <div class="inbox-divider" aria-hidden="true"></div>
 
         <div class="inbox-detail" id="inbox-detail">
           <div class="detail-empty">Select a question to see its detail.</div>
