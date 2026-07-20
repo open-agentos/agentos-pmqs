@@ -271,8 +271,17 @@ def get_product_by_org_repo(db: OrmSession, org: str, repo: str) -> Product | No
     ).first()
 
 
-def list_products(db: OrmSession, *, include_archived: bool = False) -> list[Product]:
+def list_products(db: OrmSession, *, include_archived: bool = False,
+                  member_id: str | None = None) -> list[Product]:
     stmt = select(Product)
+    if member_id is not None:
+        from pmqs.models import Membership
+        # Legacy databases created before memberships existed contain no join rows;
+        # retain their single-account product listing until the first membership is added.
+        if db.scalars(select(Membership)).first() is not None:
+            stmt = stmt.join(Membership, Membership.product_id == Product.id).where(
+                Membership.member_id == member_id
+            )
     if not include_archived:
         stmt = stmt.where(Product.archived.is_(False))
     stmt = stmt.order_by(Product.created_at)
@@ -312,5 +321,12 @@ def resolve_product_id(db: OrmSession, product_slug: str | None) -> str | None:
         return None
     p = get_product_by_slug(db, product_slug)
     if p is None:
+        raise KeyError(product_slug)
+    from pmqs import members
+    from pmqs.models import Membership
+    has_memberships = db.scalars(select(Membership)).first() is not None
+    if has_memberships and members.get_membership(
+        db, member_id=members.current_member_id(db), product_id=p.id
+    ) is None:
         raise KeyError(product_slug)
     return p.id

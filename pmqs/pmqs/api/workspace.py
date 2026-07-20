@@ -33,6 +33,24 @@ def _repo_for(db: OrmSession, workspace_slug: str | None) -> str | None:
     return product.full_name if product else None
 
 
+def _session_prefix(workspace_slug: str | None) -> str:
+    return f"/w/{workspace_slug}" if workspace_slug else ""
+
+
+def _authorized_session(db: OrmSession, session_id: str, workspace_slug: str | None):
+    sess = repository.get_session_row(db, session_id)
+    if sess is None:
+        return None
+    if workspace_slug is not None:
+        try:
+            product_id = products.resolve_product_id(db, workspace_slug)
+        except KeyError:
+            return None
+        if sess.product_id != product_id:
+            return None
+    return sess
+
+
 def _evidence_for(db: OrmSession, session) -> list[dict]:
     if session.question_id:
         q = repository.get_question(db, session.question_id)
@@ -101,7 +119,7 @@ def workspace_view(session_id: str, workspace_slug: str | None = None,
     the one hard requirement on the multi-product work -- and it would put the wrong
     product in the rail and the switcher.
     """
-    sess = repository.get_session_row(db, session_id)
+    sess = _authorized_session(db, session_id, workspace_slug)
     if sess is None:
         return HTMLResponse(render_error("War-room session not found.", 404), status_code=404)
     doc = json.loads(sess.position_doc) if sess.position_doc else None
@@ -124,17 +142,21 @@ def workspace_view(session_id: str, workspace_slug: str | None = None,
 
 
 @router.post("/workspace/{session_id}/message")
-def workspace_message(session_id: str, request: Request, content: str = Form(...), db: OrmSession = Depends(get_session)):
+@router.post("/w/{workspace_slug}/workspace/{session_id}/message")
+def workspace_message(session_id: str, request: Request, content: str = Form(...), workspace_slug: str | None = None, db: OrmSession = Depends(get_session)):
+    if _authorized_session(db, session_id, workspace_slug) is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
     assistant = warroom.respond(db, session_id, content)
     if _wants_json(request):
         from pmqs.web.render import render_message_html
         return JSONResponse({"assistant_html": render_message_html(assistant)})
-    return RedirectResponse(url=f"/workspace/{session_id}", status_code=303)
+    return RedirectResponse(url=f"{_session_prefix(workspace_slug)}/workspace/{session_id}", status_code=303)
 
 
 @router.post("/workspace/{session_id}/run-lenses")
-def workspace_run_lenses(session_id: str, request: Request, db: OrmSession = Depends(get_session)):
-    sess = repository.get_session_row(db, session_id)
+@router.post("/w/{workspace_slug}/workspace/{session_id}/run-lenses")
+def workspace_run_lenses(session_id: str, request: Request, workspace_slug: str | None = None, db: OrmSession = Depends(get_session)):
+    sess = _authorized_session(db, session_id, workspace_slug)
     if sess is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     produced = lenses.run_session_lenses(db, sess)
@@ -152,12 +174,13 @@ def workspace_run_lenses(session_id: str, request: Request, db: OrmSession = Dep
             "tab_html": render_proposed_tab_html(proposed, sess.id),
             "tab_count": len(proposed),
         })
-    return RedirectResponse(url=f"/workspace/{session_id}", status_code=303)
+    return RedirectResponse(url=f"{_session_prefix(workspace_slug)}/workspace/{session_id}", status_code=303)
 
 
 @router.post("/workspace/{session_id}/position-doc")
-def workspace_position_doc(session_id: str, request: Request, db: OrmSession = Depends(get_session)):
-    sess = repository.get_session_row(db, session_id)
+@router.post("/w/{workspace_slug}/workspace/{session_id}/position-doc")
+def workspace_position_doc(session_id: str, request: Request, workspace_slug: str | None = None, db: OrmSession = Depends(get_session)):
+    sess = _authorized_session(db, session_id, workspace_slug)
     if sess is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     # Generate ONCE: no-op if already present (per resolved Q2).
@@ -206,21 +229,27 @@ def workspace_position_doc(session_id: str, request: Request, db: OrmSession = D
             "tab": "doc",
             "tab_html": render_position_doc_tab_html(doc),
         })
-    return RedirectResponse(url=f"/workspace/{session_id}", status_code=303)
+    return RedirectResponse(url=f"{_session_prefix(workspace_slug)}/workspace/{session_id}", status_code=303)
 
 
 @router.post("/workspace/{session_id}/branch")
-def workspace_branch(session_id: str, topic: str = Form(...), db: OrmSession = Depends(get_session)):
+@router.post("/w/{workspace_slug}/workspace/{session_id}/branch")
+def workspace_branch(session_id: str, topic: str = Form(...), workspace_slug: str | None = None, db: OrmSession = Depends(get_session)):
+    if _authorized_session(db, session_id, workspace_slug) is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
     child = repository.open_session(db, topic=topic, parent_id=session_id)
-    return RedirectResponse(url=f"/workspace/{child.id}", status_code=303)
+    return RedirectResponse(url=f"{_session_prefix(workspace_slug)}/workspace/{child.id}", status_code=303)
 
 
 @router.post("/workspace/{session_id}/proposed/{qid}/add")
-def workspace_add_proposed(session_id: str, qid: str, db: OrmSession = Depends(get_session)):
+@router.post("/w/{workspace_slug}/workspace/{session_id}/proposed/{qid}/add")
+def workspace_add_proposed(session_id: str, qid: str, workspace_slug: str | None = None, db: OrmSession = Depends(get_session)):
+    if _authorized_session(db, session_id, workspace_slug) is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
     # "Add to inbox": acknowledge a proposed question by marking it saved so it pins in
     # the ranked Inbox list. It's already scored/visible; this records the PM's intent.
     repository.update_question_status(db, qid, "saved")
-    return RedirectResponse(url=f"/workspace/{session_id}", status_code=303)
+    return RedirectResponse(url=f"{_session_prefix(workspace_slug)}/workspace/{session_id}", status_code=303)
 
 
 @router.get("/workspaces", response_class=HTMLResponse)
@@ -250,5 +279,7 @@ def workspace_list(
         return HTMLResponse(
             render_workspace_list(db, rows, owner=owner, workspace_slug=workspace_slug)
         )
+    except KeyError:
+        return HTMLResponse(render_error(f"No such product workspace: {workspace_slug}", 404), status_code=404)
     except Exception as exc:
         return HTMLResponse(render_error(str(exc)), status_code=500)

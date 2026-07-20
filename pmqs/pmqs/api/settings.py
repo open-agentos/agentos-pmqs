@@ -140,7 +140,11 @@ def save_advanced_settings(
 @router.get("/w/{workspace_slug}/settings", response_class=HTMLResponse)
 def product_settings_page(workspace_slug: str, product_error: str | None = None,
                           added: str | None = None, db: OrmSession = Depends(get_session)):
-    product = products.get_product_by_slug(db, workspace_slug)
+    try:
+        product_id = products.resolve_product_id(db, workspace_slug)
+    except KeyError:
+        return _not_found(workspace_slug)
+    product = products.get_product(db, product_id)
     if product is None:
         return _not_found(workspace_slug)
     return HTMLResponse(render_product_settings(
@@ -167,8 +171,9 @@ async def save_product_settings(
     db: OrmSession = Depends(get_session),
 ):
     """One form, one save: everything that belongs to this Product."""
-    product = products.get_product_by_slug(db, workspace_slug)
-    if product is None:
+    try:
+        product = products.get_product(db, products.resolve_product_id(db, workspace_slug))
+    except KeyError:
         return _not_found(workspace_slug)
 
     try:
@@ -197,7 +202,11 @@ async def save_product_settings(
 
 @router.post("/w/{workspace_slug}/settings/archive")
 def archive_product(workspace_slug: str, db: OrmSession = Depends(get_session)):
-    product = products.get_product_by_slug(db, workspace_slug)
+    try:
+        product_id = products.resolve_product_id(db, workspace_slug)
+    except KeyError:
+        return _not_found(workspace_slug)
+    product = products.get_product(db, product_id)
     if product is None:
         return _not_found(workspace_slug)
     products.set_archived(db, product, archived=True)
