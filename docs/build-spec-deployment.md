@@ -31,6 +31,31 @@ Three hard dependencies, in order of hardness:
    entire value is a cross-tenant isolation invariant. An invariant enforced only
    by tests that nothing runs is decoration. See §10.
 
+### §1.1 Pre-deployment product-boundary gate
+
+Before putting this instance in front of another person, verify the current
+multi-product boundary locally. The Product switcher, `/api/workspaces`, and
+every `/w/{product-slug}/...` route must be membership-scoped. A product slug is
+not an authorization token: a member who is not attached to that Product gets a
+404, and must not learn whether the Product exists.
+
+This is now enforced in the pre-auth code path:
+
+- product listings and the switcher are filtered through the acting Member's
+  Membership rows;
+- scoped Inbox, Workspace, Outcomes, and Product Settings routes reject an
+  unauthorized Product slug;
+- Workspace session routes verify both the session's Product and the requested
+  Product slug;
+- the legacy unprefixed mount remains only as a compatibility path for the
+  single-account dogfood database; product-scoped navigation uses `/w/{slug}`;
+- Workspace action redirects and injected navigation preserve the active Product
+  instead of falling back to the oldest/default Product.
+
+The regression suite covers these walls, but the first-user smoke test in §11
+must still exercise them through a browser. Do not interpret a clean page load
+of `/` as proof of isolation.
+
 ---
 
 ## §2 Target
@@ -252,6 +277,25 @@ Outcomes PRs merged.
 
 **D1–D2 are the ones that matter.** D3–D6 are an afternoon. D1 and D2 are the
 ones that stop this from becoming unrecoverable later.
+
+### §11.1 First-user release checklist
+
+Run this in order immediately before inviting anyone:
+
+1. Confirm the local dogfood database has the intended default Product and that
+   every existing Product has the expected Membership for the bootstrap Member.
+2. Log in/use the app as the bootstrap user and switch between two Products.
+3. From each Product, click Inbox, Workspaces, and Outcomes; confirm the URL
+   retains `/w/{slug}` and the content remains that Product's content.
+4. Open a direct `/w/{other-slug}/...` URL while acting as a member of only one
+   Product; expect 404 and no product data in the response.
+5. Run the full test suite and inspect the CI result, not just the local result.
+6. Take the pre-deploy database backup/snapshot and record where the restore
+   artifact is stored.
+7. Only then proceed to Google OAuth and invite the first external user.
+
+If any of steps 2–4 fail, stop deployment. Do not paper over the issue by
+deleting the local database: that can hide a routing or authorization defect.
 
 ---
 

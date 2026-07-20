@@ -41,6 +41,25 @@ different names.
 > current member*, proven by a real login — plus the access-control decision about
 > who is permitted to become one.
 
+### §1.2 Pre-Phase-5 boundary hardening now landed
+
+The remaining pre-auth dogfood path has been tightened before deployment. This
+does not replace Phase 5 authentication; it ensures that adding authentication
+does not sit on top of an obviously crossed product context.
+
+- Product switcher/API listing is Member-membership scoped.
+- A `/w/{slug}` route requires the acting Member's Membership for that Product;
+  unauthorized slugs return 404.
+- Workspace sessions are checked against both their stored Product and the URL
+  Product, including action endpoints.
+- Rendered Workspace navigation carries the active Product prefix, so Inbox and
+  subsequent actions cannot silently return to the default Product.
+
+This establishes the Product wall. Phase 5 still must establish the account
+wall: a real Google identity must replace the default-member seam, membership
+must be rechecked on every request, and no unauthenticated request may use the
+compatibility mount as a data-reading shortcut.
+
 ### §1.1 Disposition of the previous doc's open questions
 
 | | Was | Now |
@@ -398,6 +417,26 @@ This repo already runs drift guards of exactly this shape (`test_brand_doc.py`,
 
 **P5.5's acceptance test is the whole phase in one sentence:** an invited friend
 logs in and sees nothing of yours.
+
+### §8.1 Clean hand-off from deployment to Phase 5
+
+Start P5.1 only after deployment D1–D4 are complete and the browser smoke test
+has passed. Before writing auth code, re-run the code check in §9 Q1 and verify
+these assumptions against the deployed schema:
+
+1. `Member` is the person identity and `Membership` is the Product join.
+2. Every historical Product has the bootstrap Member's Membership.
+3. Product-scoped links retain `/w/{slug}` and unauthorized Product URLs return
+   404 rather than redirecting to the default Product.
+4. The current `members.current_member_id()` seam is still the only caller-facing
+   way routes identify the acting Member.
+5. CI runs the isolation and route-guard tests against the same database engine
+   selected in deployment §12 Q1.
+
+The first Phase 5 implementation should then replace the identity seam and add
+the request guard; it should not redesign Product routing or re-open the tenancy
+decision. Preserve the existing product-context regression tests while adding
+the Google callback tests from §7.1.
 
 ---
 
